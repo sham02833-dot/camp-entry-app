@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1f4e78">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<title>إدخال بيانات الأسر</title>
+<style>
+:root{--navy:#1f4e78;--blue:#2e75b6;--gold:#ffc000;--bg:#f3f6fa;--card:#fff;--line:#d5dde8;--txt:#1d2733;--mut:#6b7886;--err:#c00000;--errbg:#fde9e7;--warn:#9a6b00;--warnbg:#fff2cc;--ok:#2f7d32;--okbg:#e2f0d9}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--txt);font-family:"Segoe UI",Tahoma,"Noto Naskh Arabic","Noto Sans Arabic",Arial,sans-serif;font-size:16px;line-height:1.5}
+header{background:var(--navy);color:#fff;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px}
+header h1{font-size:18px;margin:0;flex:1}
+header .sub{font-size:12px;opacity:.85}
+header button{background:rgba(255,255,255,.15);color:#fff;border:0;border-radius:8px;padding:8px 12px;font-size:15px}
+main{padding:12px 12px 90px;max-width:900px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+@media(min-width:620px){.stats{grid-template-columns:repeat(4,1fr)}}
+.stat{border-radius:12px;padding:10px;text-align:center;color:#fff}
+.stat b{display:block;font-size:28px;line-height:1.1}
+.stat span{font-size:13px;opacity:.95}
+button,.btn{font:inherit;cursor:pointer}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:46px;padding:8px 16px;border:0;border-radius:10px;background:var(--navy);color:#fff;font-weight:600;text-decoration:none}
+.btn.sec{background:#e8eef6;color:var(--navy)}
+.btn.gold{background:var(--gold);color:#222}
+.btn.red{background:var(--err)}
+.btn.small{min-height:36px;padding:4px 10px;font-size:14px}
+.btn:disabled{opacity:.5}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row.sp{justify-content:space-between}
+input,select,textarea{font:inherit;width:100%;min-height:46px;padding:8px 10px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--txt)}
+input:focus,select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(46,117,182,.2)}
+input.bad,select.bad{border-color:var(--err);background:var(--errbg)}
+input.warnf,select.warnf{border-color:#e0a800;background:var(--warnbg)}
+label{display:block;font-size:13px;color:var(--mut);margin:0 2px 3px;font-weight:600}
+.grid{display:grid;grid-template-columns:1fr;gap:10px}
+@media(min-width:620px){.grid{grid-template-columns:1fr 1fr}.grid .full{grid-column:1/-1}}
+.num{direction:ltr;text-align:right}
+.fam{display:flex;gap:10px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:12px;background:#fff;margin:8px 0;cursor:pointer}
+.fam .t{flex:1;min-width:0}
+.fam .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fam .t span{font-size:13px;color:var(--mut)}
+.badge{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700}
+.b-ok{background:var(--okbg);color:var(--ok)}.b-w{background:var(--warnbg);color:var(--warn)}.b-e{background:var(--errbg);color:var(--err)}
+.msgs{margin:8px 0;padding:0;list-style:none}
+.msgs.sticky{position:sticky;bottom:72px;background:var(--bg);padding:6px 0;max-height:34vh;overflow:auto;z-index:5}
+.msgs li{padding:6px 10px;border-radius:8px;margin:4px 0;font-size:14px}
+.msgs .e{background:var(--errbg);color:var(--err);border-right:4px solid var(--err)}
+.msgs .w{background:var(--warnbg);color:var(--warn);border-right:4px solid #e0a800}
+.msgs .g{background:var(--okbg);color:var(--ok);border-right:4px solid var(--ok)}
+.bar{position:fixed;bottom:0;right:0;left:0;background:#fff;border-top:1px solid var(--line);padding:8px 12px calc(8px + env(safe-area-inset-bottom));display:flex;gap:8px;justify-content:center;z-index:10}
+.bar .btn{flex:1;max-width:260px}
+.toast{position:fixed;bottom:84px;right:50%;transform:translateX(50%);background:#222;color:#fff;padding:10px 16px;border-radius:10px;z-index:50;max-width:90%;font-size:15px}
+.banner{background:var(--warnbg);border:1px solid #e0c060;color:#6b4f00;border-radius:10px;padding:8px 12px;margin:10px 0;font-size:14px}
+h2{font-size:17px;color:var(--navy);margin:14px 2px 4px}
+.mem{display:flex;gap:10px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--line);cursor:pointer}
+.mem:last-child{border:0}
+.mem .t{flex:1;min-width:0}.mem small{color:var(--mut)}
+.hint{font-size:13px;color:var(--mut)}
+table.t{border-collapse:collapse;width:100%;font-size:14px}table.t td,table.t th{border:1px solid var(--line);padding:4px 8px;text-align:right}table.t th{background:#e8eef6}
+</style>
+</head>
+<body>
+<header><div style="flex:1"><h1 id="ttl">إدخال بيانات الأسر</h1><div class="sub" id="sub"></div></div><button id="hb" onclick="go('home')">الرئيسية</button></header>
+<main id="view"></main>
+<div class="bar" id="bar"></div>
+
+<script>
+"use strict";
+/* ============================== lookups (injected at build time) ============================== */
+const LK = {"doc":[{"c":"1","ar":"هوية فلسطينية","en":"ID"},{"c":"2","ar":"هوية اردنية","en":"Jordanian ID"},{"c":"3","ar":"مصرية","en":"Egyptian document"},{"c":"4","ar":"تصريح اقامة","en":"Permit"},{"c":"5","ar":"هوية اسرائيلية","en":"Israeli/ Jerusalem ID"},{"c":"6","ar":"وثيقة أخرى","en":"Other documents"}],"gender":[{"c":"1","ar":"ذكر","en":"Male"},{"c":"2","ar":"أنثى","en":"Female"}],"marital":[{"c":"1","ar":"لم يتزوج أبداً","en":"Single"},{"c":"2","ar":"متزوج","en":"Married"},{"c":"3","ar":"عقد لاول مرة ولم يتم الدخول","en":"Contract W/C "},{"c":"4","ar":"مطلق","en":"مطلق"},{"c":"5","ar":"أرمل","en":"أرمل"},{"c":"6","ar":"منفصل","en":"Separated "},{"c":"9","ar":"مهجور","en":"Deserted"}],"relation":[{"c":"1","ar":"رب الاسرة ","en":"Head Of Family"},{"c":"2","ar":"الزوجة / الزوج","en":"Spouse"},{"c":"3","ar":"ابن / ابنه","en":"Son/daughter"},{"c":"4","ar":"الاب / الام","en":"Father/mother"},{"c":"5","ar":"الاخ / الاخت","en":"Brother/sister"},{"c":"6","ar":"الجد / الجده","en":"Grandfather/grandmot"},{"c":"7","ar":"حفيد / حفيدة","en":"Grandchild"},{"c":"8","ar":"زوجة ابن / بنت","en":"Son/daughter in law"},{"c":"9","ar":"اقرباء اخرون","en":"Father/mother in law"},{"c":"10","ar":"اخرون","en":"Other relatives"}],"gov":[{"c":"60","ar":"غزة","en":"Gaza"},{"c":"55","ar":"شمال غزة","en":"North Gaza"},{"c":"65","ar":"دير البلح","en":"Deir alBalah"},{"c":"70","ar":"خانيونس","en":"Khan Yunis"},{"c":"75","ar":"رفح","en":"Rafah"},{"c":"50","ar":"الخليل","en":"Hebron"},{"c":"45","ar":"بيت لحم","en":"Betlahem"},{"c":"15","ar":"نابلس","en":"Nablus"},{"c":"01","ar":"جنين","en":"Jenin"},{"c":"10","ar":"طولكرم","en":"Tulkarm"},{"c":"35","ar":"اريحا","en":"Jericho"},{"c":"30","ar":"رام الله","en":"Ramallah&alBireh"},{"c":"20","ar":"قلقيلية","en":"Qalqiliya"},{"c":"25","ar":"سلفيت","en":"Salfit"},{"c":"40","ar":"القدس","en":"jerlasem"},{"c":"90","ar":"يطا","en":"Yatta"},{"c":"05","ar":"طوباس","en":"Tubas"}],"loc":[{"c":"10005","ar":"زبوبه","en":"Zububa"},{"c":"10010","ar":"رمانة","en":"Rummana"},{"c":"10015","ar":"تعنك","en":"Ti'innik"},{"c":"10020","ar":"الطيبة","en":"At Tayba"},{"c":"10025","ar":"عربونة","en":" 'Arabbuna"},{"c":"10030","ar":"الجلمة","en":"Al Jalama"},{"c":"10035","ar":"سيلة الحارثية","en":"Silat al Harithiya"},{"c":"10040","ar":"السعايدة","en":"As Sa'aida"},{"c":"10045","ar":"عانين","en":"'Anin"},{"c":"10050","ar":"عرانة","en":"'Arrana"},{"c":"10055","ar":"دير غزالة","en":"Deir Ghazala"},{"c":"10060","ar":"فقوعة","en":"Faqqu'a"},{"c":"10060","ar":"خربة ابو عنقر","en":"Khirbet Abu 'Anqar"},{"c":"10070","ar":"خربة سروج","en":"Khirbet Suruj"},{"c":"10180","ar":"ضاحية صباح الخير","en":"Dahiyat Sabah al Kheir"},{"c":"10080","ar":"اليامون","en":"Al Yamun"},{"c":"10085","ar":"ام الريحان","en":"Umm ar Rihan"},{"c":"10165","ar":"عرب الحمدون","en":" 'Arab al Hamdun"},{"c":"10095","ar":"كفر دان","en":"Kafr Dan"},{"c":"10060","ar":"برغشة","en":"Barghasha"},{"c":"10105","ar":"خربة عبد الله اليونس","en":"Khirbet 'Abdallah al Yunis"},{"c":"10110","ar":"مشروع بيت قاد","en":"Mashru' Beit Qad"},{"c":"10115","ar":"ظهر المالح","en":"Dhaher al Malih"},{"c":"10120","ar":"برطعة الشرقية","en":"Barta'a ash Sharqiya"},{"c":"10125","ar":"العرقة","en":"Al 'Araqa"},{"c":"10120","ar":"خربةالشيخ سعيد","en":"Khirbet ash Sheikh Sa'eed"},{"c":"10135","ar":"الجميلات","en":"Al Jameelat"},{"c":"10140","ar":"بيت قاد","en":"Beit Qad"},{"c":"10145","ar":"طورة الغربية","en":"Tura al Gharbiya"},{"c":"10150","ar":"طورة الشرقية","en":"Tura ash Sharqiya"},{"c":"10155","ar":"الهاشمية","en":"Al Hashimiya"},{"c":"10140","ar":"ام  قابوب","en":"Umm Qabub"},{"c":"10165","ar":"نزلة الشيخ زيد","en":"Nazlat ash Sheikh Zeid"},{"c":"10170","ar":"الطرم","en":"At Tarem"},{"c":"10175","ar":"خربة المنطار الغربية","en":"Khirbet al Muntar al Gharbiya"},{"c":"10180","ar":"جنين","en":"Jenin"},{"c":"10185","ar":"مخيم جنين","en":"Jenin Camp"},{"c":"10190","ar":"جلبون","en":"Jalbun"},{"c":"10195","ar":"عابا","en":"'Aba"},{"c":"10245","ar":"خربة مسعود ( عراق الدوار )","en":" Khirbet Mas'ud"},{"c":"10205","ar":"خربة المنطار الشرقية","en":"Khirbet al Muntar ash Sharqiya"},{"c":"10210","ar":"كفر قود","en":"Kafr Qud"},{"c":"10215","ar":"دير ابو ضعيف","en":"Deir Abu Da'if"},{"c":"10220","ar":"برقين","en":"Birqin"},{"c":"10220","ar":"واد برقين","en":"Wad Borqeen"},{"c":"10225","ar":"ام دار","en":"Umm Dar"},{"c":"10230","ar":"الخلجان","en":"Al Khuljan"},{"c":"10235","ar":"وادي الضبع","en":"Wad ad Dabi'"},{"c":"10240","ar":"ظهر العبد","en":"Dhaher al 'Abed"},{"c":"10245","ar":"زبدة","en":"Zabda"},{"c":"10245","ar":"قيقس (القصور)","en":"Qeiqis"},{"c":"10210","ar":"المنشية","en":"Al Manshiya"},{"c":"10265","ar":"يعبد","en":"Ya'bad"},{"c":"10180","ar":"عرب السويطات","en":" 'Arab as Suweitat"},{"c":"10275","ar":"كفيرت","en":"Kufeirit"},{"c":"10340","ar":"خربة سبعين","en":"Khirbet Sab'ein"},{"c":"10285","ar":"امريحة","en":"Imreiha"},{"c":"10295","ar":"ام التوت","en":"Umm at Tut"},{"c":"10300","ar":"الشهداء","en":"Ash Shuhada"},{"c":"10305","ar":"جلقموس","en":"Jalqamus"},{"c":"10310","ar":"المغير","en":"Al Mughayyir"},{"c":"10315","ar":"المطلة","en":"Al Mutilla"},{"c":"10320","ar":"بير الباشا","en":"Bir al Basha"},{"c":"10325","ar":"تنين","en":"Tannin"},{"c":"10335","ar":"الحفيرة (حفيرة عرابه)","en":"Al Hafira"},{"c":"10340","ar":"قباطية","en":"Qabatiya"},{"c":"10365","ar":"الضمايرة","en":"Ad Damayra"},{"c":"10370","ar":"عرابة","en":"Arraba"},{"c":"10405","ar":"خربة مراح  الرهى","en":"Khirbet Marah ar Raha"},{"c":"10385","ar":"تلفيت","en":"Telfit"},{"c":"10405","ar":"خربة خروبة","en":"Khirbet Kharruba"},{"c":"10395","ar":"مركة","en":"Mirka"},{"c":"10400","ar":"وادي دعوق","en":"Wadi Du'oq"},{"c":"10401","ar":"فحمة الجديدة","en":"Fahma al Jadida"},{"c":"10405","ar":"رابا","en":"Raba"},{"c":"10410","ar":"المنصورة","en":"Al Mansura"},{"c":"10415","ar":"مسلية","en":"Misliya"},{"c":"10430","ar":"الجربا","en":"Al Jarba"},{"c":"10435","ar":"الزبابدة","en":"Az Zababida"},{"c":"10445","ar":"فحمة","en":"Fahma"},{"c":"10460","ar":"الزاوية","en":"Az Zawiya"},{"c":"10465","ar":"كفر راعي","en":"Kafr Ra'i"},{"c":"10485","ar":"الكفير","en":"Al Kufeir"},{"c":"10495","ar":"صير","en":"Sir"},{"c":"10500","ar":"عجة","en":"'Ajja"},{"c":"10505","ar":"عنزة","en":"'Anza"},{"c":"10510","ar":"صانور","en":"Sanur"},{"c":"10515","ar":"الرامة","en":"Ar Rama"},{"c":"10520","ar":"ميثلون","en":"Meithalun"},{"c":"10495","ar":"منطقة الهيش","en":"Mantiqat al Heish"},{"c":"10565","ar":"الجديدة","en":"Al Judeida"},{"c":"10585","ar":"العصاعصة","en":"al 'Asa'asa"},{"c":"10590","ar":"العطارة","en":"Al 'Attara"},{"c":"10600","ar":"سيريس","en":"Siris"},{"c":"10605","ar":"جبع","en":"Jaba'"},{"c":"10615","ar":"الفندقومية","en":"Al Fandaqumiya"},{"c":"10625","ar":"سيلة الظهر","en":"Silat adh Dhahr"},{"c":"50420","ar":"بردلة","en":"2Bardala"},{"c":"50450","ar":"عين البيضا","en":" 'Ein el Beida"},{"c":"50455","ar":"كردلة","en":"Kardala"},{"c":"50470","ar":"خربة تل الحمة","en":"Khirbet Tell el Himma"},{"c":"50490","ar":"ابزيق","en":"Ibziq"},{"c":"50525","ar":"سلحب","en":"Salhab"},{"c":"50535","ar":"عقابه","en":"'Aqqaba"},{"c":"50550","ar":"تياسير","en":"Tayasir"},{"c":"50551","ar":"الفارسية","en":"Al Farisiya"},{"c":"50560","ar":"العقبة","en":"Al 'Aqaba"},{"c":"50610","ar":"الثغرة","en":"Ath Thaghra"},{"c":"50580","ar":"المالح","en":"Al Malih"},{"c":"50610","ar":"طوباس","en":"Tubas"},{"c":"50650","ar":"كشدة","en":"Kashda"},{"c":"50656","ar":"خربة يرزة","en":"Khirbet Yarza"},{"c":"50670","ar":"راس الفارعة","en":"Ras al Far'a"},{"c":"50700","ar":"مخيم الفارعة","en":"El Far'a Camp"},{"c":"50720","ar":"خربة الراس الاحمر","en":"Khirbet ar Ras al Ahmar"},{"c":"50740","ar":"وادي الفارعة","en":"Wadi al Far'a"},{"c":"50755","ar":"طمون","en":"Tammun"},{"c":"50790","ar":"خربة عاطوف","en":"Khirbet 'Atuf"},{"c":"50560","ar":"قرية العقبة","en":"Al-Aqabba"},{"c":"50871","ar":"الحديدية","en":"Al Hadidiya"},{"c":"50871","ar":"خربة حمصة","en":"Khirbet Humsa"},{"c":"100250","ar":"عكابة","en":" 'Akkaba"},{"c":"100290","ar":"قفين","en":"Qaffin"},{"c":"100330","ar":"نزلة عيسى","en":"Nazlat 'Isa"},{"c":"100345","ar":"النزلة الشرقية","en":"An Nazla ash Sharqiya"},{"c":"100350","ar":"باقة الشرقية","en":"Baqa ash Sharqiya"},{"c":"100355","ar":"النزلة الوسطى","en":"An Nazla al Wusta"},{"c":"100350","ar":"نزلة ابو نار","en":"Nazlat Abu Nar"},{"c":"100380","ar":"النزلة الغربية","en":"An Nazla al Gharbiya"},{"c":"100425","ar":"زيتا","en":"Zeita"},{"c":"100440","ar":"صيدا","en":"Seida"},{"c":"100475","ar":"علار","en":"'Illar"},{"c":"100480","ar":"عتيل","en":"'Attil"},{"c":"100530","ar":"دير الغصون","en":"Deir al Ghusun"},{"c":"100545","ar":"الجاروشية","en":"Al Jarushiya"},{"c":"100555","ar":"المسقوفة","en":"Al Masqufa"},{"c":"100570","ar":"بلعا","en":"Bal'a"},{"c":"100595","ar":"اكتابا","en":"Iktaba"},{"c":"100620","ar":"مخيم نور شمس","en":"Nur Shams Camp"},{"c":"100665","ar":"كفر رمان","en":"Kafr Rumman"},{"c":"100635","ar":"مخيم طولكرم","en":"Tulkarm Camp"},{"c":"100645","ar":"ذنابة","en":"Dhinnaba"},{"c":"100645","ar":"طولكرم","en":"Tulkarm"},{"c":"100645","ar":"شويكة","en":"shwaiqeh"},{"c":"100655","ar":"عزبة ابو خميش","en":" 'Izbat Abu Khameish"},{"c":"100665","ar":"عنبتا","en":"'Anabta"},{"c":"100645","ar":"خربة الطياح","en":"Khirbet at Tayyah"},{"c":"100685","ar":"عزبة  الخلال","en":" 'Izbat al Khilal"},{"c":"100690","ar":"كفر اللبد","en":"Kafr al Labad"},{"c":"100645","ar":"عزبة ناصر ","en":"Izbet Naser"},{"c":"100645","ar":"عزبة الجراد","en":"Izbet Aljarad"},{"c":"100710","ar":"كفا","en":"Kafa"},{"c":"100715","ar":"الحفاصي","en":"Al Haffasi"},{"c":"100725","ar":"عزبة شوفة","en":" 'Izbat Shufa"},{"c":"100730","ar":"رامين","en":"Ramin"},{"c":"100735","ar":"فرعون","en":"Far'un"},{"c":"100645","ar":"ارتاح","en":"--"},{"c":"100760","ar":"شوفة","en":"Shufa"},{"c":"100780","ar":"خربة جبارة","en":"Khirbet Jubara"},{"c":"100795","ar":"سفارين","en":"Saffarin"},{"c":"100800","ar":"بيت ليد","en":"Beit Lid"},{"c":"100815","ar":"الراس","en":"Ar Ras"},{"c":"100845","ar":"كفر صور","en":"Kafr Sur"},{"c":"100870","ar":"كور","en":"Kur"},{"c":"100895","ar":"كفر زيباد","en":"Kafr Zibad"},{"c":"100900","ar":"كفر جمال","en":"Kafr Jammal"},{"c":"100915","ar":"كفر عبوش","en":"Kafr 'Abbush"},{"c":"150660","ar":"بزاريه","en":"Bizzariya"},{"c":"150680","ar":"برقة","en":"Burqa"},{"c":"150695","ar":"ياصيد","en":"Yasid"},{"c":"150705","ar":"بيت امرين","en":"Beit Imrin"},{"c":"150745","ar":"نصف جبيل","en":"Nisf Jubeil"},{"c":"150680","ar":"المسعودية","en":"Al Mas'udiya"},{"c":"150765","ar":"سبسطية","en":"Sabastiya"},{"c":"150770","ar":"اجنسنيا","en":"Ijnisinya"},{"c":"150775","ar":"طلوزة","en":"Talluza"},{"c":"150785","ar":"الناقورة","en":"An Naqura"},{"c":"150805","ar":"الباذان","en":"Al Badhan"},{"c":"150810","ar":"دير شرف","en":"Deir Sharaf"},{"c":"150820","ar":"عصيرة الشمالية","en":" 'Asira ash Shamaliya"},{"c":"150825","ar":"النصارية","en":"An Nassariya"},{"c":"150835","ar":"زواتا","en":"Zawata"},{"c":"150840","ar":"العقربانية","en":"Al 'Aqrabaniya"},{"c":"150840","ar":"خربة تل الغار","en":"Khirbet Tall al Ghar"},{"c":"150855","ar":"قوصين","en":"Qusin"},{"c":"150860","ar":"بيت ايبا","en":"Beit Iba"},{"c":"150865","ar":"بيت حسن","en":"Beit Hasan"},{"c":"150875","ar":"بيت وزن","en":"Beit Wazan"},{"c":"150880","ar":"مخيم عين بيت الماء","en":" 'Ein Beit el Ma Camp"},{"c":"150885","ar":"عين شبلي","en":" 'Ein Shibli"},{"c":"150920","ar":"الجنيد","en":"Al Juneid"},{"c":"150910","ar":"عزموط","en":" 'Azmut"},{"c":"150920","ar":"نابلس","en":"Nablus"},{"c":"150930","ar":"مخيم عسكر","en":" 'Askar Camp"},{"c":"150935","ar":"دير الحطب","en":"Deir al Hatab"},{"c":"150865","ar":"شحدة وهملان","en":"Shihda wa Hamlan"},{"c":"150950","ar":"صرة","en":"Sarra"},{"c":"150955","ar":"سالم","en":"Salim"},{"c":"150960","ar":"مخيم بلاطة","en":"Balata Camp"},{"c":"150920","ar":"بلاط البلد","en":"Balata Balad"},{"c":"150920","ar":"عراق التايه","en":"Iraq Tayeh"},{"c":"150975","ar":"عراق بورين","en":"'Iraq Burin"},{"c":"150990","ar":"تل","en":"Tell"},{"c":"151000","ar":"بيت دجن","en":"Beit Dajan"},{"c":"151010","ar":"روجيب","en":"Rujeib"},{"c":"151025","ar":"كفر قليل","en":"Kafr Qallil"},{"c":"151030","ar":"فروش بيت دجن","en":"Furush Beit Dajan"},{"c":"151050","ar":"مادما","en":"Madama"},{"c":"151080","ar":"بورين","en":"Burin"},{"c":"151090","ar":"بيت فوريك","en":"Beit Furik"},{"c":"151095","ar":"عصيرة القبلية","en":" 'Asira al Qibliya"},{"c":"151135","ar":"عورتا","en":" 'Awarta"},{"c":"151160","ar":"عوريف","en":" 'Urif"},{"c":"151176","ar":"خربة طانا","en":"Khirbet Tana"},{"c":"151180","ar":"اودلا","en":"Odala"},{"c":"151185","ar":"حوارة","en":"Huwwara"},{"c":"151195","ar":"عينبوس","en":" 'Einabus"},{"c":"151200","ar":"يانون","en":"Yanun"},{"c":"151215","ar":"بيتا","en":"Beita"},{"c":"151220","ar":"الرجمان","en":"Ar Rajman"},{"c":"151230","ar":"زيتا جماعين","en":"Zeita Jamma'in"},{"c":"151270","ar":"جفا النون","en":"Jafa an Nun"},{"c":"151220","ar":"الدوا","en":"Ad Dawa"},{"c":"151245","ar":"جماعين","en":"Jamma'in"},{"c":"151265","ar":"اوصرين","en":"Osarin"},{"c":"151270","ar":"عقربا","en":"Aqraba"},{"c":"151285","ar":"زعترة","en":"Za'tara"},{"c":"151311","ar":"تل الخشبة","en":"Tall al Khashaba"},{"c":"151325","ar":"يتما","en":"Yatma"},{"c":"151335","ar":"قبلان","en":"Qabalan"},{"c":"151345","ar":"جوريش","en":"Jurish"},{"c":"151365","ar":"قصرة","en":"Qusra"},{"c":"151375","ar":"تلفيت","en":"Talfit"},{"c":"151380","ar":"الساوية","en":"As Sawiya"},{"c":"151385","ar":"مجدل بني فاضل","en":"Majdal Bani Fadil"},{"c":"151405","ar":"اللبن الشرقية","en":"Al Lubban ash Sharqiya"},{"c":"151410","ar":"قريوت","en":"Qaryut"},{"c":"151420","ar":"جالود","en":"Jalud"},{"c":"151435","ar":"عمورية","en":" 'Ammuriya"},{"c":"151445","ar":"دوما","en":"Duma"},{"c":"151450","ar":"خربة صرة","en":"Khirbet Sarra"},{"c":"151445","ar":"خربة المراجم","en":"Khirbet al Marajim"},{"c":"200905","ar":"فلامية","en":"Falamya"},{"c":"200925","ar":"كفر قدوم","en":"Kafr Qaddum"},{"c":"200945","ar":"جيت","en":"Jit"},{"c":"200965","ar":"باقة الحطب","en":"Baqat al Hatab"},{"c":"200970","ar":"حجة","en":"Hajja"},{"c":"100915","ar":"عزبة ابو حمادة","en":" 'Izbat Abu Hamada"},{"c":"200985","ar":"جيوس","en":"Jayyus"},{"c":"200995","ar":"خربة صير","en":"Khirbet Sir"},{"c":"201005","ar":"عرب الرماضين الشمالي","en":" 'Arab ar Ramadin ash Shamali"},{"c":"201015","ar":"فرعتا","en":"Far'ata"},{"c":"201020","ar":"اماتين","en":"Immatin"},{"c":"201035","ar":"الفندق","en":"Al Funduq"},{"c":"201040","ar":"قلقيلية","en":"Qalqiliya"},{"c":"201055","ar":"النبي الياس","en":"An Nabi Elyas"},{"c":"201075","ar":"محطة تحسين منصور","en":"Mahattat Tahseen Mansur"},{"c":"201065","ar":"كفر لاقف","en":"Kafr Laqif"},{"c":"201070","ar":"عرب ابو فردة","en":" 'Arab Abu Farda"},{"c":"201075","ar":"عزبة الطبيب","en":" 'Izbat at Tabib"},{"c":"201085","ar":"جنصافوط","en":"Jinsafut"},{"c":"201100","ar":"عزون","en":"'Azzun"},{"c":"201105","ar":"عرب الرماضين الجنوبي","en":" 'Arab ar Ramadin al Janubi"},{"c":"201115","ar":"عسلة","en":" 'Isla"},{"c":"201120","ar":"وادي الرشا","en":"Wadi ar Rasha"},{"c":"201125","ar":"حبلة","en":"Habla"},{"c":"201130","ar":"راس الطيرة","en":"Ras at Tira"},{"c":"201155","ar":"راس عطية","en":"Ras 'Atiya"},{"c":"201170","ar":"الضبعة","en":"Ad Dab'a"},{"c":"201175","ar":"كفر ثلث","en":"Kafr Thulth"},{"c":"201190","ar":"عزبة جلعود","en":" 'Izbat Jal'ud"},{"c":"201205","ar":"المدور","en":"Al Mudawwar"},{"c":"201210","ar":"عزبة سلمان","en":"'Izbat Salman"},{"c":"201225","ar":"عزبة الاشقر","en":" 'Izbat al Ashqar"},{"c":"201255","ar":"بيت امين","en":"Beit Amin"},{"c":"201260","ar":"سنيريا","en":"Sanniriya"},{"c":"201280","ar":"عزون عتمة","en":"'Azzun 'Atma"},{"c":"251250","ar":"وادي قانا","en":"Wadi Qana"},{"c":"251250","ar":"دير استيا","en":"Deir Istiya"},{"c":"251275","ar":"قراوة بني حسان","en":"Qarawat Bani Hassan"},{"c":"251290","ar":"قيرة","en":"Qira"},{"c":"251295","ar":"كفل حارس","en":"Kifl Haris"},{"c":"251300","ar":"مردا","en":"Marda"},{"c":"251305","ar":"بديا","en":"Biddya"},{"c":"251310","ar":"حارس","en":"Haris"},{"c":"251315","ar":"ياسوف","en":"Yasuf"},{"c":"251320","ar":"مسحة","en":"Mas-ha"},{"c":"251330","ar":"اسكاكا","en":"Iskaka"},{"c":"251340","ar":"صرطة","en":"Sarta"},{"c":"251310","ar":"دار ابو بصل","en":"Dar Abu Basal"},{"c":"251355","ar":"عزبة ابو ادم","en":" 'Izbat Abu Adam"},{"c":"251360","ar":"الزاوية","en":"Az Zawiya"},{"c":"251370","ar":"سلفيت","en":"Salfit"},{"c":"251425","ar":"خربة سوسة","en":"Khirbet Susa"},{"c":"251395","ar":"رافات","en":"Rafat"},{"c":"251400","ar":"بروقين","en":"Bruqin"},{"c":"251415","ar":"فرخة","en":"Farkha"},{"c":"251425","ar":"كفر الديك","en":"Kafr ad Dik"},{"c":"251430","ar":"دير بلوط","en":"Deir Ballut"},{"c":"251440","ar":"خربة قيس","en":"Khirbet Qeis"},{"c":"301455","ar":"قراوة بني زيد","en":"Qarawat Bani Zeid"},{"c":"301460","ar":"مزارع النوباني","en":"Mazari' an Nubani"},{"c":"301470","ar":"كفر عين","en":"Kafr 'Ein"},{"c":"301475","ar":"عارورة","en":" 'Arura"},{"c":"301455","ar":"بني زيد","en":"Bani Zeid"},{"c":"301485","ar":"عبوين","en":" 'Abwein"},{"c":"301490","ar":"ترمسعيا","en":"Turmus'ayya"},{"c":"301495","ar":"اللبن الغربي","en":"Al Lubban al Gharbi"},{"c":"301500","ar":"سنجل","en":"Sinjil"},{"c":"301505","ar":"دير السودان","en":"Deir as Sudan"},{"c":"301515","ar":"رنتيس","en":"Rantis"},{"c":"301520","ar":"جلجيليا","en":"Jilijliya"},{"c":"301525","ar":"عجول","en":" 'Ajjul"},{"c":"301530","ar":"المغير","en":"Al Mughayyir"},{"c":"301535","ar":"عابود","en":" 'Abud"},{"c":"301540","ar":"النبي صالح","en":"An Nabi Salih"},{"c":"301545","ar":"خربة ابو فلاح","en":"Khirbet Abu Falah"},{"c":"301550","ar":"ام صفا","en":"Umm Safa"},{"c":"301555","ar":"المزرعة الشرقية","en":"Al Mazra'a ash Sharqiya"},{"c":"301560","ar":"دير نظام","en":"Deir Nidham"},{"c":"301565","ar":"عطارة","en":" 'Atara"},{"c":"301570","ar":"دير ابو مشعل","en":"Deir Abu Mash'al"},{"c":"301575","ar":"جيبيا","en":"Jibiya"},{"c":"301590","ar":"عين سامية","en":" 'Ein Samiya"},{"c":"301585","ar":"برهام","en":"Burham"},{"c":"301590","ar":"كفر مالك","en":"Kafr Malik"},{"c":"301595","ar":"شقبا","en":"Shuqba"},{"c":"301600","ar":"كوبر","en":"Kobar"},{"c":"301605","ar":"قبيه","en":"Qibya"},{"c":"301610","ar":"سلواد","en":"Silwad"},{"c":"301615","ar":"يبرود","en":"Yabrud"},{"c":"301620","ar":"بيتللو","en":"Beitillu"},{"c":"301625","ar":"شبتين","en":"Shabtin"},{"c":"301630","ar":"جمالا","en":"Jammala"},{"c":"301635","ar":"بير زيت","en":"Bir Zeit"},{"c":"301640","ar":"عين سينيا","en":"'Ein Siniya"},{"c":"301645","ar":"مخيم سلواد","en":"Silwad Camp"},{"c":"301650","ar":"دير جرير","en":"Deir Jarir"},{"c":"301655","ar":"دير عمار","en":"Deir 'Ammar"},{"c":"301660","ar":"مخيم دير عمار","en":"Deir 'Ammar Camp"},{"c":"301665","ar":"بدرس","en":"Budrus"},{"c":"301670","ar":"ابو شخيدم","en":"Abu Shukheidim"},{"c":"301675","ar":"جفنا","en":"Jifna"},{"c":"301680","ar":"دورا القرع","en":"Dura al Qar'"},{"c":"301685","ar":"الطيبة2","en":"At Tayba"},{"c":"301695","ar":"المزرعة القبلية","en":"Al Mazra'a al Qibliya"},{"c":"301700","ar":"مخيم الجلزون","en":"Al Jalazun Camp"},{"c":"301705","ar":"ابو قش","en":"Abu Qash"},{"c":"301710","ar":"دير قديس","en":"Deir Qaddis"},{"c":"301715","ar":"نعلين","en":"Ni'lin"},{"c":"301720","ar":"عين يبرود","en":" 'Ein Yabrud"},{"c":"301725","ar":"خربثا بني حارث","en":"Kharbatha Bani Harith"},{"c":"301730","ar":"راس كركر","en":"Ras Karkar"},{"c":"301735","ar":"صردا","en":"Surda"},{"c":"301740","ar":"الجانية","en":"Al Janiya"},{"c":"301745","ar":"المدية","en":"Al Midya"},{"c":"301750","ar":"رمون","en":"Rammun"},{"c":"301755","ar":"كفر نعمة","en":"Kafr Ni'ma"},{"c":"301760","ar":"بلعين","en":"Bil'in"},{"c":"301765","ar":"بيتين","en":"Beitin"},{"c":"301770","ar":"عين قينيا","en":" 'Ein Qiniya"},{"c":"301775","ar":"بدو المعرجات","en":"Badiw al Mu'arrajat"},{"c":"301780","ar":"دير ابزيع","en":"Deir Ibzi'"},{"c":"301785","ar":"دير دبوان","en":"Deir Dibwan"},{"c":"301790","ar":"البيرة","en":"Al Bireh"},{"c":"301825","ar":"خربة كفر شيان","en":"Khirbet Kafr Sheiyan"},{"c":"301800","ar":"عين عريك","en":"'Ein 'Arik"},{"c":"301805","ar":"صفا","en":"Saffa"},{"c":"301810","ar":"رام الله","en":"Ramallah"},{"c":"301815","ar":"برقة","en":"Burqa"},{"c":"301820","ar":"بيت عور التحتا","en":"Beit 'Ur at Tahta"},{"c":"301825","ar":"بيتونيا","en":"Beituniya"},{"c":"301830","ar":"مخيم الامعري","en":"Al Am'ari Camp"},{"c":"301835","ar":"مخيم قدورة","en":"Qaddura Camp"},{"c":"301850","ar":"بيت سيرا","en":"Beit Sira"},{"c":"301855","ar":"خربثا المصباح","en":"Kharbatha al Misbah"},{"c":"301860","ar":"بيت عور الفوقا","en":"Beit 'Ur al Fauqa"},{"c":"301890","ar":"الطيرة","en":"At Tira"},{"c":"301895","ar":"بيت لقيا","en":"Beit Liqya"},{"c":"301895","ar":"بيت نوبا","en":"Beit Nuba"},{"c":"351045","ar":"مرج نعجة","en":"Marj Na'ja"},{"c":"351110","ar":"الزبيدات","en":"Az Zubeidat"},{"c":"351116","ar":"مرج الغزال","en":"Marj al Ghazal"},{"c":"351140","ar":"الجفتلك","en":"Al Jiftlik"},{"c":"351510","ar":"فصايل","en":"Fasayil"},{"c":"351690","ar":"العوجا","en":"Al 'Auja"},{"c":"351840","ar":"النويعمة","en":"An Nuwei'ma"},{"c":"351845","ar":"عين الديوك الفوقا","en":" 'Ein ad Duyuk al Fauqa"},{"c":"351865","ar":"مخيم عين السلطان","en":" 'Ein as Sultan Camp"},{"c":"351920","ar":"دير قرنطل","en":"Deir Quruntul"},{"c":"351920","ar":"عين الديوك التحتا","en":" 'Ein ad Duyuk at Tahta"},{"c":"351920","ar":"اريحا","en":"Jericho (Ariha)"},{"c":"351970","ar":"دير القلط","en":"Deir al Qilt"},{"c":"351920","ar":"المعرجات","en":"Moarajat"},{"c":"351975","ar":"مخيم عقبة جبر","en":"Aqbat Jaber Camp"},{"c":"352021","ar":"دير حجلة","en":"Deir Hajla"},{"c":"352075","ar":"النبي موسى","en":"An Nabi Musa"},{"c":"401870","ar":"رافات","en":"Rafat"},{"c":"411875","ar":"كفر عقب","en":"Kafr 'Aqab"},{"c":"401885","ar":"مخماس","en":"Mikhmas"},{"c":"401900","ar":"مخيم قلنديا","en":"Qalandiya Camp"},{"c":"401945","ar":"جبع  (تجمع بدوي)","en":"Jaba' (Tajammu' Badawi)"},{"c":"401915","ar":"قلنديا","en":"Qalandiya"},{"c":"401930","ar":"بيت دقو","en":"Beit Duqqu"},{"c":"401935","ar":"جبع","en":"Jaba'"},{"c":"401940","ar":"الجديرة","en":"Al Judeira"},{"c":"401945","ar":"الرام وضاحية البريد","en":"Ar Ram & Dahiyat al Bareed"},{"c":"401950","ar":"بيت عنان","en":"Beit 'Anan"},{"c":"401955","ar":"الجيب","en":"Al Jib"},{"c":"401960","ar":"بير نبالا","en":"Bir Nabala"},{"c":"401965","ar":"بيت اجزا","en":"Beit Ijza"},{"c":"401980","ar":"القبيبة","en":"Al Qubeiba"},{"c":"401985","ar":"خرايب ام اللحم","en":"Kharayib Umm al Lahim"},{"c":"411990","ar":"بيت حنينا","en":"--"},{"c":"401995","ar":"بدو","en":"Biddu"},{"c":"402000","ar":"النبي صموييل","en":"An Nabi Samwil"},{"c":"402005","ar":"حزما","en":"Hizma"},{"c":"402010","ar":"بيت حنينا البلد","en":"Beit Hanina al Balad"},{"c":"402015","ar":"قطنه","en":"Qatanna"},{"c":"402020","ar":"بيت سوريك","en":"Beit Surik"},{"c":"402025","ar":"بيت اكسا","en":"Beit Iksa"},{"c":"412030","ar":"مخيم شعفاط","en":"--"},{"c":"412035","ar":"شعفاط","en":"--"},{"c":"402040","ar":"عناتا","en":"'Anata"},{"c":"402045","ar":"(الكعابنه (تجمع بدوي","en":"Al Ka'abina (Tajammu' Badawi)"},{"c":"412050","ar":"العيسوية","en":"--"},{"c":"412055","ar":"الشيخ جراح","en":"-"},{"c":"412060","ar":"وادي الجوز","en":"-"},{"c":"402065","ar":"الزعيم","en":"Az Za'ayyem"},{"c":"412070","ar":"باب الساهره","en":"-"},{"c":"412080","ar":"الصوانه","en":"-"},{"c":"412085","ar":"الطور ( جبل الزيتون )","en":"-"},{"c":"412090","ar":"القدس - بيت المقدس","en":"-"},{"c":"412095","ar":"الشياح","en":"-"},{"c":"402100","ar":"العيزرية","en":"Al 'Eizariya"},{"c":"412105","ar":"راس العامود","en":"-"},{"c":"412110","ar":"سلوان","en":"--"},{"c":"412115","ar":"الثوري","en":"-"},{"c":"402120","ar":"ابو ديس","en":"Abu Dis"},{"c":"402125","ar":"عرب الجهالين","en":" 'Arab al Jahalin"},{"c":"412130","ar":"جبل المكبر","en":"-"},{"c":"412135","ar":"السواحرة الغربية","en":"-"},{"c":"412140","ar":"بيت صفافا","en":"-"},{"c":"402145","ar":"السواحرة الشرقية","en":"As Sawahira ash Sharqiya"},{"c":"412150","ar":"شرفات","en":"-"},{"c":"412155","ar":"صور باهر","en":"-"},{"c":"402160","ar":"الشيخ سعد","en":"Ash Sheikh Sa'd"},{"c":"412165","ar":"ام طوبا","en":"-"},{"c":"452170","ar":"الولجة","en":"Al Walaja"},{"c":"452175","ar":"بتير","en":"Battir"},{"c":"452180","ar":"العبيدية","en":"Al 'Ubeidiya"},{"c":"452185","ar":"مخيم عايدة","en":" 'Ayda Camp"},{"c":"452190","ar":"خلة النعمان","en":"Khallet an Nu'man"},{"c":"452195","ar":"مخيم العزة","en":"Al 'Aza Camp"},{"c":"452200","ar":"الخاص","en":"Al Khas"},{"c":"452205","ar":"الحدادية","en":"Al Haddadiya"},{"c":"452210","ar":"بيت جالا","en":"Beit Jala"},{"c":"452180","ar":"وادي العرايس","en":"Wadi al 'Arayis"},{"c":"452225","ar":"الحجيلة","en":"Al Hujeila"},{"c":"452225","ar":"دار صلاح","en":"Dar Salah"},{"c":"452230","ar":"حوسان","en":"Husan"},{"c":"452235","ar":"وادي فوكين","en":"Wadi Fukin"},{"c":"452240","ar":"بيت لحم","en":"Bethlehem (Beit Lahm)"},{"c":"452225","ar":"جهضم","en":"Juhdum"},{"c":"452225","ar":"ام القسيس","en":"Umm al Qasseis"},{"c":"452255","ar":"بيت ساحور","en":"Beit Sahur"},{"c":"452225","ar":"ام عسلة","en":"Umm 'Asla"},{"c":"452265","ar":"الدوحة","en":"Ad Doha"},{"c":"452270","ar":"الخضر","en":"Al Khadr"},{"c":"452275","ar":"مخيم الدهيشة","en":"Ad Duheisha Camp"},{"c":"452280","ar":"هندازة","en":"Hindaza"},{"c":"452285","ar":"الشواورة","en":"Ash Shawawra"},{"c":"452360","ar":"راس الواد","en":"Ras al Wad"},{"c":"452285","ar":"فخت الجول","en":"Fakht al Jul"},{"c":"452300","ar":"ارطاس","en":"Artas"},{"c":"452280","ar":"ظهرة الندى","en":"Dhahrat an Nada"},{"c":"452280","ar":"وادي ام قلعة","en":"Wadi Umm Qal'a"},{"c":"452280","ar":"خلة حمد","en":"Khallet Hamad"},{"c":"452280","ar":"بريضعة","en":"Bureid'a"},{"c":"452325","ar":"نحالين","en":"Nahhalin"},{"c":"452285","ar":"الخشنة","en":"Al Khushna"},{"c":"452335","ar":"بيت تعمر","en":"Beit Ta'mir"},{"c":"452400","ar":"خربة النحلة","en":"Khirbet an Nahla"},{"c":"452385","ar":"العروج","en":"Oorooj"},{"c":"452525","ar":"خربة زكريا","en":"Kherbet Zakaria"},{"c":"452345","ar":"خلة اللوزة","en":"Khallet al Louza"},{"c":"452385","ar":"رخمة","en":"Rakhme"},{"c":"452360","ar":"زعترة","en":"Za'tara"},{"c":"452385","ar":"العساكرة","en":"Al 'Asakira"},{"c":"452400","ar":"الثبرة","en":"Ath Thabra"},{"c":"452375","ar":"الفريديس","en":"Al Fureidis"},{"c":"452400","ar":"البيضا","en":"Al Beida"},{"c":"452385","ar":"بيت فالوح","en":"Beit Falouh"},{"c":"452390","ar":"خلة البلوطة","en":"Khallet al Balluta"},{"c":"452385","ar":"خلة القرانين","en":"Khallet al Qaranin"},{"c":"452400","ar":"وادي رحال","en":"Wadi Rahhal"},{"c":"452405","ar":"جبة الذيب","en":"Jubbet adh Dhib"},{"c":"452385","ar":"العقاب","en":"Al 'Iqab"},{"c":"452415","ar":"خلة سكاريا","en":"Khallet Sakariya"},{"c":"452385","ar":"حرملة","en":"Harmala"},{"c":"452385","ar":"ابو نجيم","en":"Abu Nujeim"},{"c":"452430","ar":"خلة الحداد","en":"Khallet al Haddad"},{"c":"452440","ar":"المعصرة","en":"Al Ma'sara"},{"c":"452445","ar":"وادي النيص","en":"Wadi an Nis"},{"c":"452455","ar":"خربة الدير","en":"Khirbet ad Deir"},{"c":"452460","ar":"جورة الشمعة","en":"Jurat ash Sham'a"},{"c":"452465","ar":"خلة عفانة","en":"Khallet 'Afana"},{"c":"452470","ar":"مراح معلا","en":"Marah Ma'alla"},{"c":"452475","ar":"الحلقوم","en":"Al Halqum"},{"c":"452480","ar":"ام سلمونة","en":"Umm Salamuna"},{"c":"452490","ar":"المنشية","en":"Al Manshiya"},{"c":"452495","ar":"تقوع","en":"Tuqu'"},{"c":"452500","ar":"مراح رباح","en":"Marah Rabah"},{"c":"452510","ar":"وادي محمد","en":"Wadi Muhammad"},{"c":"452520","ar":"خربة تقوع","en":"Khirbet Tuqu'"},{"c":"452525","ar":"بيت فجار","en":"Beit Fajjar"},{"c":"452535","ar":"المنية","en":"Al Maniya"},{"c":"452565","ar":"كيسان","en":"Kisan"},{"c":"452660","ar":"عرب الرشايدة","en":" 'Arab ar Rashayida"},{"c":"452660","ar":"العزازمة","en":"Al 'Azazima"},{"c":"452660","ar":"الرواعين","en":"Ar Rawa'in"},{"c":"452355","ar":"الجبعة","en":"Al Jab'a"},{"c":"502435","ar":"خربة الدير","en":"Khirbet ad Deir"},{"c":"502450","ar":"صوريف","en":"Surif"},{"c":"502540","ar":"صافا","en":"Safa"},{"c":"502540","ar":"خربة المنطرة","en":"Khirbet al Mantara"},{"c":"502560","ar":"خربة مشرف(عذاب)","en":"Khirbet Mushrif"},{"c":"502530","ar":"مخيم العروب","en":"Al 'Arrub Camp"},{"c":"502540","ar":"بيت اومر","en":"Beit Ummar"},{"c":"502545","ar":"جالا","en":"Jala"},{"c":"502550","ar":"حتا","en":"Hitta"},{"c":"502555","ar":"شيوخ العروب","en":"Shuyukh al 'Arrub"},{"c":"502560","ar":"خاراس","en":"Kharas"},{"c":"502615","ar":"قيلا","en":"Qila"},{"c":"502575","ar":"ام البطم","en":"Umm al Butm"},{"c":"502580","ar":"حمروش","en":"Hamrush"},{"c":"502585","ar":"نوبا","en":"Nuba"},{"c":"502595","ar":"عرقان طراد","en":" 'Irqan Turad"},{"c":"502595","ar":"كوزيبا","en":"Kuziba"},{"c":"502615","ar":"راس الجورة","en":"Ras al Jora"},{"c":"502630","ar":"البقار","en":"Al Baqqar"},{"c":"502620","ar":"شمالية الهوى","en":" Shamaliyyat al Hawa"},{"c":"502615","ar":"بيت اولا","en":"Beit Ula"},{"c":"502620","ar":"سعير","en":"Sa'ir"},{"c":"502655","ar":"خربة جمرورة","en":"Khirbet Jamrura"},{"c":"502630","ar":"حلحول","en":"Halhul"},{"c":"502635","ar":"الشيوخ","en":"Ash Shuyukh"},{"c":"502640","ar":"ترقوميا","en":"Tarqumiya"},{"c":"502685","ar":"بير مسلم","en":"Bir Musallam"},{"c":"502635","ar":"قفان الخميس","en":"Qafan al Khamis"},{"c":"502655","ar":"بيت كاحل","en":"Beit Kahil"},{"c":"502620","ar":"راس الطويل","en":"Ras at Tawil"},{"c":"502630","ar":"خربة الحسكة","en":"Khirbet al Hasaka"},{"c":"502680","ar":"بيت عينون","en":"Beit 'Einun"},{"c":"502685","ar":"اذنا","en":"Idhna"},{"c":"502620","ar":"الدوارة","en":"Ad Duwwara"},{"c":"502725","ar":"جرون اللوز","en":"Jurun al Louz"},{"c":"502750","ar":"الخمجات","en":"Al Khamajat"},{"c":"502620","ar":"العديسة","en":"Al 'Uddeisa"},{"c":"502725","ar":"وادي الريم","en":"Wadi ar Rim"},{"c":"502730","ar":"سوبا","en":"Suba"},{"c":"502735","ar":"قنان النمر","en":"Qinan an Namir"},{"c":"502750","ar":"تفوح","en":"Taffuh"},{"c":"502765","ar":"بيت مقدوم","en":"Beit Maqdum"},{"c":"502770","ar":"الكوم","en":"Al Kum"},{"c":"502780","ar":"الخليل","en":"Hebron (Al Khalil)"},{"c":"502785","ar":"حمصة","en":"Humsa"},{"c":"502795","ar":"المورق","en":"Al Muwarraq"},{"c":"502800","ar":"طاروسة","en":"Tarusa"},{"c":"502840","ar":"كريسة","en":"Kureise"},{"c":"502810","ar":"دير سامت","en":"Deir Samit"},{"c":"502815","ar":"بني نعيم","en":"Bani Na'im"},{"c":"502840","ar":"رفادة","en":"Rafada"},{"c":"502830","ar":"الرواعين (مسفرة بني نعيم)","en":"Ar Rawa'in"},{"c":"502835","ar":"بيت عوا","en":"Beit 'Awwa"},{"c":"502840","ar":"دورا","en":"Dura"},{"c":"502840","ar":"واضح","en":"Wadih"},{"c":"502840","ar":"الطبقة","en":"At Tabaqa"},{"c":"502855","ar":"قلقس","en":"Qalqas"},{"c":"502860","ar":"سكة","en":" Sikka"},{"c":"502870","ar":"خربة سلامة","en":"Khirbet Salama"},{"c":"502870","ar":"وادي عبيد","en":"Wadi 'Ubeid"},{"c":"502870","ar":"فقيقيس","en":"Fuqeiqis"},{"c":"502880","ar":"بيرين","en":"Birin"},{"c":"502840","ar":"الهجرة","en":"Al Hijra"},{"c":"502890","ar":"طواس","en":"Tawas"},{"c":"502895","ar":"خرسا","en":"Khursa"},{"c":"502900","ar":"طرامة","en":"Tarrama"},{"c":"502905","ar":"مخيم الفوار","en":"Al Fawwar Camp"},{"c":"502910","ar":"المجد","en":"Al Majd"},{"c":"502915","ar":"مراح البقار","en":"Marah al Baqqar"},{"c":"502920","ar":"حدب الفوار","en":"Hadab al Fawwar"},{"c":"502925","ar":"دير العسل التحتا","en":"Deir al 'Asal at Tahta"},{"c":"502910","ar":"خربة ابو حامد","en":"Khirbet Abu Hamid"},{"c":"503120","ar":"الحيلة","en":"Al Heila"},{"c":"502940","ar":"وادي الشاجنة","en":"Wadi ash Shajina"},{"c":"502950","ar":"الصرة","en":"As Sura"},{"c":"502955","ar":"دير رازح","en":"Deir Razih"},{"c":"502960","ar":"الريحية","en":"Ar Rihiya"},{"c":"502965","ar":"زيف","en":"Zif"},{"c":"502970","ar":"دير العسل الفوقا","en":"Deir al 'Asal al Fauqa"},{"c":"502950","ar":"خلة العقد","en":"Khallet al 'Aqed"},{"c":"502980","ar":"امريش","en":"Imreish"},{"c":"502985","ar":"اسكيك","en":"Iskeik"},{"c":"502965","ar":"حريز","en":"Hureiz"},{"c":"503120","ar":"بيار العروس","en":"Biyar al 'Arus"},{"c":"502980","ar":"عبدة","en":" 'Abda"},{"c":"503005","ar":"البويب","en":"Al Buweib"},{"c":"503010","ar":"بيت الروش التحتا","en":"Beit ar Rush at Tahta"},{"c":"502940","ar":"خربة بسم","en":"Khirbet Bism"},{"c":"503120","ar":"الدوير","en":"Ad Duweir"},{"c":"502980","ar":"العلقة الفوقا","en":"Al 'Alaqa al Fauqa"},{"c":"503120","ar":"وادي السادة","en":"Wadi as Sada"},{"c":"503100","ar":"خلة عربي","en":"Khallet 'Arabi"},{"c":"502950","ar":"حدب العلقة","en":"Hadab al 'Alaqa"},{"c":"502980","ar":"العلقة التحتا","en":"Al 'Alaqa at Tahta"},{"c":"503075","ar":"ابو سحويلة","en":"Abu Suhweila"},{"c":"503100","ar":"قنان النجمة","en":"Qinan an Najma"},{"c":"503120","ar":"قرنة الراس","en":"Qurnet ar Ras"},{"c":"503075","ar":"بيت مرسم","en":"Beit Mirsim"},{"c":"503125","ar":"الرفاعية","en":"Ar Rifa'iyya"},{"c":"503120","ar":"خريسة","en":"Khurisa"},{"c":"503090","ar":"بيت الروش الفوقا","en":"Beit ar Rush al Fauqa"},{"c":"503095","ar":"كرمة","en":"Karma"},{"c":"503100","ar":"بيت عمرة","en":"Beit 'Amra"},{"c":"503105","ar":"الزويدين","en":" Az Zuweidin"},{"c":"503110","ar":"وادي الكلاب","en":"Wadi al Kilab"},{"c":"503115","ar":"خلة المية","en":"Khallet al Maiyya"},{"c":"503120","ar":"يطا","en":"Yatta"},{"c":"503125","ar":"الديرات","en":"Ad Deirat"},{"c":"503130","ar":"خشم الكرم (الهذالين)","en":"Khashem al Karem"},{"c":"503135","ar":"كرزة","en":"Kurza"},{"c":"503145","ar":"رابود","en":"Rabud"},{"c":"503150","ar":"ام لصفا","en":"Umm Lasafa"},{"c":"503145","ar":"ابو العسجا","en":"Abu al 'Asja"},{"c":"503145","ar":"ابو الغزلان","en":"Abu al Ghuzlan"},{"c":"503170","ar":"البيرة","en":"Al Bira"},{"c":"503170","ar":"البرج","en":"Al Burj"},{"c":"503120","ar":"المنطار","en":"Al Muntar"},{"c":"503145","ar":"ابو العرقان","en":"Abu al 'Urqan"},{"c":"503120","ar":"اعزيز","en":"I'zeiz"},{"c":"503090","ar":"جوي ","en":"Juwai "},{"c":"503120","ar":"الفقير","en":"Al Faqir"},{"c":"503215","ar":"الكرمل","en":"Al Karmil"},{"c":"503220","ar":"قنان جابر","en":"Qinan Jaber"},{"c":"503215","ar":"خلة صالح","en":"Khallet Salih"},{"c":"502810","ar":"السيميا","en":"As Simiya"},{"c":"503235","ar":"سومرة","en":"Somara"},{"c":"503245","ar":"الظاهرية","en":"Adh Dhahiriya"},{"c":"503255","ar":"التواني","en":"At Tuwani"},{"c":"503215","ar":"معين","en":"Ma'in"},{"c":"503265","ar":"النجادة","en":"An Najada"},{"c":"503270","ar":"خربة دير شمس","en":"Khirbet Deir Shams"},{"c":"503280","ar":"الركيز","en":"Ar Rakeez"},{"c":"503285","ar":"خربة شويكة","en":"Khirbet Shuweika"},{"c":"503255","ar":"خربة صارورة","en":"Khirbet Sarura"},{"c":"503295","ar":"عناب الكبير","en":" 'Anab al Kabir"},{"c":"503300","ar":"خربة اصفي","en":"Khirbet Asafi"},{"c":"503305","ar":"خربة المقعورة","en":"Khirbet al Maq'ura"},{"c":"503310","ar":"منطقة شعب البطن","en":"Mantiqat Shi'b al Batin"},{"c":"503315","ar":"قواويس","en":"Qawawis"},{"c":"503320","ar":"السموع","en":"As Samu'"},{"c":"503325","ar":"خربة طويل الشيح","en":"Khirbet Tawil ash Shih"},{"c":"503350","ar":"خربة التبان","en":"Khirbet at Tabban"},{"c":"503335","ar":"الرماضين","en":"Ar Ramadin"},{"c":"503350","ar":"خربة المجاز","en":"Khirbet al Majaz"},{"c":"503345","ar":"مغاير العبيد","en":"Maghayir al 'Abeed"},{"c":"503350","ar":"خربة الفخيت","en":"Khirbet al Fakheit"},{"c":"503360","ar":"خربة التوامين","en":"Khirbet at Tawamin"},{"c":"503360","ar":"خربة بير العد","en":"Khirbet Bir al 'Idd"},{"c":"503365","ar":"هريبة النبي","en":"Haribat an Nabi"},{"c":"503375","ar":"خربة زنوتة","en":"Khirbet Zanuta"},{"c":"503380","ar":"امنيزل","en":"Imneizil"},{"c":"503385","ar":"خربة الخرابة","en":"Khirbet al Kharaba"},{"c":"503256","ar":"سوسية","en":"Sosieh"},{"c":"503395","ar":"خربة غوين الفوقا","en":"Khirbet Ghuwein al Fauqa"},{"c":"503400","ar":"خربة الرهوة","en":"Khirbet ar Rahwa"},{"c":"503405","ar":"عرب الفريجات","en":" 'Arab al Fureijat"},{"c":"502780","ar":"الخليل/جنوب","en":"Hebron (South)"},{"c":"502815","ar":"بني نعيم /شمال","en":"بني نعيم /شمال"},{"c":"502780","ar":"الخليل / الشمال","en":"الخليل / الشمال"},{"c":"503255","ar":"التوانة","en":"Al-Tawanh"},{"c":"503120","ar":"رافات","en":"Rafat"},{"c":"552681","ar":"القرية البدوية المسلخ","en":"Al Qaraya al Badawiya al Maslakh"},{"c":"552695","ar":"بيت لاهيا","en":"Beit Lahiya"},{"c":"552740","ar":"بيت حانون","en":"Beit Hanun"},{"c":"552740","ar":"عزبة بيت حانون","en":"'Izbat Beit Hanun"},{"c":"552755","ar":"مخيم جباليا","en":"Jabalya Camp"},{"c":"552695","ar":"عرب مسلخ بيت لاهيا","en":" 'Arab Maslakh Beit Lahya"},{"c":"552790","ar":"جباليا","en":"Jabalya"},{"c":"602825","ar":"مدينة العودة","en":"Madinat al 'Awda"},{"c":"602775","ar":"مخيم الشاطىء","en":"Ash Shati' Camp"},{"c":"602825","ar":"غزة","en":"Gaza"},{"c":"602945","ar":"المغراقه (ابو مدين)","en":"Al Mughraqa (Abu Middein)"},{"c":"603045","ar":"جحر الديك","en":"Juhor ad Dik"},{"c":"653065","ar":"مخيم النصيرات","en":"An Nuseirat Camp"},{"c":"653140","ar":"مخيم البريج","en":"Al Bureij Camp"},{"c":"653180","ar":"الزوايدة","en":"Az Zawayda"},{"c":"653200","ar":"مخيم دير البلح","en":"Deir al Balah Camp"},{"c":"653210","ar":"مخيم المغازي","en":"Al Maghazi Camp"},{"c":"653240","ar":"دير البلح","en":"Deir al Balah"},{"c":"653250","ar":"المصدر","en":"Al Musaddar"},{"c":"653275","ar":"وادي السلقا","en":"Wadi as Salqa"},{"c":"703370","ar":"القرارة","en":"Al Qarara"},{"c":"703370","ar":"السريج","en":"As Sureij"},{"c":"703410","ar":"مخيم خانيونس","en":"Khan Yunis Camp"},{"c":"703420","ar":"المواصي (خانيونس)","en":"Al Mawasi (Khan Yunis)"},{"c":"703420","ar":"خانيونس","en":"Khan Yunis"},{"c":"703425","ar":"بني سهيلا","en":"Bani Suheila"},{"c":"703430","ar":"عبسان الجديدة (الصغيرة )","en":" 'Abasan al Jadida(as Saghira)"},{"c":"703445","ar":"عبسان الكبيرة","en":" 'Abasan al Kabira"},{"c":"703420","ar":"قيزان النجار","en":"Qizan an Najjar"},{"c":"703420","ar":"قاع الخرابة","en":"Qa' al Kharaba"},{"c":"703420","ar":"قاع القرين","en":"Qa' al Qurein"},{"c":"703470","ar":"خزاعة","en":"Khuza'a"},{"c":"703420","ar":"ام كميل","en":"Umm Kameil"},{"c":"703420","ar":"ام الكلاب","en":"Umm al Kilab"},{"c":"703485","ar":"الفخاري","en":"Al Fukhkhari"},{"c":"753490","ar":"المواصي (رفح)","en":"Al Mawasi (Rafah)"},{"c":"753495","ar":"القرية السويدية","en":"Al Qarya as Suwaydiya"},{"c":"753490","ar":"مخيم تل السلطان","en":"Tall as Sultan Camp"},{"c":"753490","ar":"رفح","en":"Rafah"},{"c":"753495","ar":"مخيم رفح","en":"Rafah Camp"},{"c":"753500","ar":"البيوك","en":"Al Bayuk"},{"c":"753505","ar":"شوكة الصوفي","en":"Shokat as Sufi"},{"c":"503248","ar":"كفر جول","en":"كفر جول"}],"headers":["رقم الوثيقة *","رقم نوع الوثيقة * ","الاسم الأول بالعربية *","الاسم الثاني بالعربية *","الاسم الثالث بالعربية *","الاسم الرابع بالعربية *","تاريخ الميلاد (dd/mm/yyyy)*","رقم الجنس * ","رقم الحالة الاجتماعية * ","رقم الهاتف المحمول * ","رمز المحافظة  * ","رمز التجمع السكاني * ","رقم وثيقة رب الاسرة","نوع وثيقة رب الاسرة","رقم علاقة الفرد بالاسرة"],"sheetNames":{"doc":"رقم نوع الوثيقة","gender":"رقم الجنس ","marital":"رقم الحالة الاجتماعية","gov":"رمز المحافظة","loc":"رمز التجمع السكاني","relation":"رقم علاقة الفرد بالاسرة"}};
+const byC = (arr) => Object.fromEntries(arr.map(x => [x.c, x]));
+const L = { doc: byC(LK.doc), gender: byC(LK.gender), marital: byC(LK.marital), relation: byC(LK.relation), gov: byC(LK.gov), loc: byC(LK.loc) };
+const FIELDS = ["id","dt","n1","n2","n3","n4","dob","sex","ms","ph","gov","loc","hid","hdt","rel"]; // = Sheet1 columns A..O
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fullName = (p) => [p.n1, p.n2, p.n3, p.n4].map(x => (x || "").trim()).filter(Boolean).join(" ");
+const uid = () => "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const today = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
+
+/* ============================== storage (IndexedDB, fallback localStorage) ============================== */
+const Store = {
+  db: null,
+  async open() {
+    if (!window.indexedDB) return;
+    this.db = await new Promise((res, rej) => {
+      const r = indexedDB.open("camp_entry", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("kv");
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    }).catch(() => null);
+  },
+  async get() {
+    try {
+      if (this.db) return await new Promise((res, rej) => { const q = this.db.transaction("kv").objectStore("kv").get("db"); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+      const t = localStorage.getItem("camp_entry_db"); return t ? JSON.parse(t) : null;
+    } catch (e) { return null; }
+  },
+  async set(v) {
+    try {
+      if (this.db) return await new Promise((res, rej) => { const q = this.db.transaction("kv", "readwrite").objectStore("kv").put(v, "db"); q.onsuccess = res; q.onerror = () => rej(q.error); });
+      localStorage.setItem("camp_entry_db", JSON.stringify(v));
+    } catch (e) { toast("تعذّر الحفظ على الجهاز! نزّل نسخة احتياطية الآن"); }
+  }
+};
+let DB = { meta: { camp: "", lastBackup: 0, defGov: "", defLoc: "", cc: "970" }, people: [], camps: [], roles: [], users: [], audit: [], deviceId: "" };
+let saveT = null;
+const save = () => { clearTimeout(saveT); saveT = setTimeout(() => Store.set(DB), 150); };
+
+/* ============================== validation (mirror of the 30 Excel/tool rules) ============================== */
+const MSG = {
+  id9: "رقم الوثيقة ليس 9 أرقام", dup: "رقم وثيقة مكرر", hidEmpty: "رقم وثيقة رب الأسرة فارغ", hidMissing: "رب الأسرة غير موجود في الكشف",
+  name: "اسم ناقص", phone: "رقم الجوال غير صحيح (9 أو 10 أرقام فقط)", dobBad: "تاريخ الميلاد غير صالح (المطلوب dd/mm/yyyy)", dobFut: "تاريخ ميلاد في المستقبل",
+  sex: "الجنس غير معروف", ms: "الحالة الاجتماعية غير معروفة", rel: "صلة القرابة غير معروفة", gov: "المحافظة غير معروفة", loc: "التجمع السكاني غير معروف",
+  relHead: "رقم الأسرة = رقمه لكن صلة قرابته ليست رب أسرة", headRel: "صلة قرابته رب أسرة لكن رقم الأسرة مختلف", heads: "الأسرة بها أكثر من رب أو بدون رب",
+  luhn: "رقم الوثيقة مرفوض في فحص خانة التحقق",
+  w_phone: "الجوال لا يبدأ بـ 059/056 أو ضاع صفر البداية",
+  w_child: "ابن/ابنة أكبر من رب الأسرة أو الفارق أقل من 12 سنة", w_parent: "الأب/الأم أصغر من رب الأسرة أو الفارق أقل من 12 سنة",
+  w_gp: "الجد/الجدة والفارق مع رب الأسرة أقل من 24 سنة", w_gc: "الحفيد والفارق مع رب الأسرة أقل من 24 سنة",
+  w_sameSex: "الزوج/ة من نفس جنس رب الأسرة", w_spMs: "الزوج/ة حالته الاجتماعية ليست متزوج", w_headMs: "لرب الأسرة زوج/ة في الكشف وحالته ليست متزوج",
+  w_msAge: "حالة اجتماعية غير منطقية للعمر (أقل من 16 سنة)", w_head16: "رب الأسرة أقل من 16 سنة", w_105: "العمر أكبر من 105 سنة",
+  w_locGov: "التجمع السكاني لا يتبع المحافظة", w_dupNd: "اسم وتاريخ ميلاد مكرران (شخص مكرر؟)",
+  w_headSingle: "رب الأسرة «أعزب» وفي أسرته أبناء أو أحفاد أو زوجة ابن", w_dil: "زوجة ابن متزوجة ولا يوجد ابن متزوج في الأسرة",
+  w_gcNoParent: "حفيد بلا أب أو أم ظاهرين في الأسرة (يتيم؟ راجع)", w_spCount: "عدد الأزواج/الزوجات في الأسرة غير منطقي", w_gap30: "فارق العمر مع رب الأسرة أكبر من 30 سنة (راجع تاريخ الميلاد)"
+};
+function parseDob(s) {            // strict dd/mm/yyyy, real calendar date
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((s || "").trim());
+  if (!m) return null;
+  const d = +m[1], mo = +m[2], y = +m[3];
+  if (y < 1900) return null;
+  const dt = new Date(y, mo - 1, d);
+  return (dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d) ? dt : null;
+}
+function ageOf(dt) {
+  if (!dt) return null; const t = today(); if (dt > t) return null;
+  let a = t.getFullYear() - dt.getFullYear();
+  if (t.getMonth() < dt.getMonth() || (t.getMonth() === dt.getMonth() && t.getDate() < dt.getDate())) a--;
+  return a;
+}
+function luhnOK(id) {            // same algorithm as the donor system's check_id (9 digits, last = check digit)
+  if (!/^\d{9}$/.test(id)) return false;
+  let b = 0;
+  for (let i = 0; i < 8; i++) { let a = +id[i]; if ((i + 1) % 2 === 0) a *= 2; if (a > 9) a -= 9; b += a; }
+  return ((10 - (b % 10)) % 10) === +id[8];
+}
+function buildCtx(people) {
+  const byId = new Map(), heads = new Map(), spouses = new Map(), nd = new Map(), fam = new Map();
+  for (const p of people) {
+    const hk = (p.hid || "").trim();
+    if (hk) { const f = fam.get(hk) || { r2: 0, r3: 0, r7: 0, r8: 0, sonMarried: 0, kid15: 0 }; fam.set(hk, f);
+      if (p.rel === "2") f.r2++; if (p.rel === "7") f.r7++; if (p.rel === "8") f.r8++;
+      if (p.rel === "3") { f.r3++; if (p.ms === "2" && p.sex === "1") f.sonMarried++; const a0 = ageOf(parseDob(p.dob)); if (typeof a0 === "number" && a0 >= 15) f.kid15++; } }
+    const id = (p.id || "").trim(); if (id) { if (!byId.has(id)) byId.set(id, []); byId.get(id).push(p); }
+    const h = (p.hid || "").trim();
+    if (h && p.rel === "1") heads.set(h, (heads.get(h) || 0) + 1);
+    if (h && p.rel === "2") spouses.set(h, (spouses.get(h) || 0) + 1);
+    const d = parseDob(p.dob); if (d) { const k = fullName(p) + "|" + p.dob; nd.set(k, (nd.get(k) || 0) + 1); }
+  }
+  return { byId, heads, spouses, nd, fam };
+}
+function validate(p, ctx) {       // -> [{s:'E'|'W', m:text, f:[field names]}]
+  const out = []; const E = (m, f) => out.push({ s: "E", m, f: f || [] }); const W = (m, f) => out.push({ s: "W", m, f: f || [] });
+  const id = (p.id || "").trim(), hid = (p.hid || "").trim(), ph = (p.ph || "").trim();
+  const dob = parseDob(p.dob), age = ageOf(dob);
+  const head = (ctx.byId.get(hid) || [])[0]; const hAge = head ? ageOf(parseDob(head.dob)) : null;
+  if (p.dt === "1" && id.length !== 9 || (p.dt === "1" && id && !/^\d+$/.test(id))) E(MSG.id9, ["id"]);
+  if (id && (ctx.byId.get(id) || []).length > 1) E(MSG.dup, ["id"]);
+  if (!hid) E(MSG.hidEmpty, ["hid"]);
+  else if (!ctx.byId.has(hid)) E(MSG.hidMissing, ["hid"]);
+  if (![p.n1, p.n2, p.n3, p.n4].every(x => (x || "").trim())) E(MSG.name, ["n1", "n2", "n3", "n4"]);
+  if (ph && (!/^\d+$/.test(ph) || (ph.length !== 9 && ph.length !== 10))) E(MSG.phone, ["ph"]);
+  if (!dob) E(MSG.dobBad, ["dob"]); else if (dob > today()) E(MSG.dobFut, ["dob"]);
+  if (!L.gender[p.sex]) E(MSG.sex, ["sex"]);
+  if (!L.marital[p.ms]) E(MSG.ms, ["ms"]);
+  if (!L.relation[p.rel]) E(MSG.rel, ["rel"]);
+  if (!L.gov[p.gov]) E(MSG.gov, ["gov"]);
+  if (!L.loc[p.loc]) E(MSG.loc, ["loc"]);
+  if (id && id === hid && p.rel !== "1") E(MSG.relHead, ["rel"]);
+  if (p.rel === "1" && id !== hid) E(MSG.headRel, ["hid"]);
+  if (hid && (ctx.heads.get(hid) || 0) !== 1) E(MSG.heads, ["rel"]);
+  if (p.dt === "1" && /^\d{9}$/.test(id) && !luhnOK(id)) E(MSG.luhn, ["id"]);
+  // warnings
+  if (/^\d+$/.test(ph) && (ph.length === 9 || ph.length === 10) && !(ph.length === 10 && (ph.startsWith("059") || ph.startsWith("056")))) W(MSG.w_phone, ["ph"]);
+  const num = (x) => typeof x === "number";
+  if (p.rel === "3" && num(age) && num(hAge) && hAge - age < 12) W(MSG.w_child, ["dob"]);
+  if (p.rel === "4" && num(age) && num(hAge) && age - hAge < 12) W(MSG.w_parent, ["dob"]);
+  if (p.rel === "6" && num(age) && num(hAge) && age - hAge < 24) W(MSG.w_gp, ["dob"]);
+  if (p.rel === "7" && num(age) && num(hAge) && hAge - age < 24) W(MSG.w_gc, ["dob"]);
+  if (p.rel === "2" && head && L.gender[p.sex] && L.gender[head.sex] && p.sex === head.sex) W(MSG.w_sameSex, ["sex"]);
+  if (p.rel === "2" && L.marital[p.ms] && p.ms !== "2" && p.ms !== "3") W(MSG.w_spMs, ["ms"]);
+  if (p.rel === "1" && L.marital[p.ms] && p.ms !== "2" && p.ms !== "3" && (ctx.spouses.get(hid) || 0) > 0) W(MSG.w_headMs, ["ms"]);
+  if (num(age) && age < 16 && ["2", "3", "4", "5", "9"].includes(p.ms)) W(MSG.w_msAge, ["ms", "dob"]);
+  if (p.rel === "1" && num(age) && age < 16) W(MSG.w_head16, ["dob"]);
+  if (num(age) && age > 105) W(MSG.w_105, ["dob"]);
+  const g = (p.gov || "").trim(), l = (p.loc || "").trim();
+  if (g && l && l.slice(0, 2) !== g && !(l.slice(0, 2) === "41" && g === "40")) W(MSG.w_locGov, ["loc"]);
+  if (dob && (ctx.nd.get(fullName(p) + "|" + p.dob) || 0) > 1) W(MSG.w_dupNd, ["id"]);
+  const fm = ctx.fam.get(hid) || { r2: 0, r3: 0, r7: 0, r8: 0, sonMarried: 0, kid15: 0 };
+  if (p.rel === "1" && p.ms === "1" && fm.r2 === 0 && (fm.r3 + fm.r7 + fm.r8) > 0) W(MSG.w_headSingle, ["ms"]);
+  if (p.rel === "8" && p.ms === "2" && fm.sonMarried === 0) W(MSG.w_dil, ["rel"]);
+  if (p.rel === "7" && (fm.kid15 + fm.r8) === 0) W(MSG.w_gcNoParent, ["rel"]);
+  if (p.rel === "1" && L.gender[p.sex] && (p.sex === "1" ? fm.r2 > 4 : fm.r2 > 1)) W(MSG.w_spCount, ["rel"]);
+  if (p.rel === "2" && num(age) && num(hAge) && Math.abs(age - hAge) > 30) W(MSG.w_gap30, ["dob"]);
+  return out;
+}
+let VCACHE = null;
+function validateAll() {
+  const lv = live(), ctx = buildCtx(lv), res = new Map();
+  for (const p of lv) res.set(p.uid, validate(p, ctx));
+  VCACHE = res; return res;
+}
+const status = (iss) => iss.some(i => i.s === "E") ? "E" : iss.length ? "W" : "OK";
+const badge = (s) => s === "E" ? '<span class="badge b-e">❌ خطأ</span>' : s === "W" ? '<span class="badge b-w">⚠ تنبيه</span>' : '<span class="badge b-ok">✅</span>';
+
+/* ============================== families ============================== */
+function families() {
+  const m = new Map();
+  for (const p of visible()) { const k = (p.hid || p.id || p.uid).trim(); if (!m.has(k)) m.set(k, []); m.get(k).push(p); }
+  return [...m.entries()].map(([k, arr]) => {
+    arr.sort((a, b) => (+a.rel || 99) - (+b.rel || 99));
+    return { key: k, head: arr.find(p => p.rel === "1") || arr[0], members: arr };
+  });
+}
+function famStatus(f, v) { const ss = f.members.map(p => status(v.get(p.uid) || [])); return ss.includes("E") ? "E" : ss.includes("W") ? "W" : "OK"; }
+
+/* ============================== zip + xlsx (no libraries, works offline) ============================== */
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = (b) => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+const U8 = (s) => new TextEncoder().encode(s);
+function zipStore(files) {        // files: [{name, data:Uint8Array}] -> Uint8Array (stored, no compression)
+  const parts = [], cen = []; let off = 0;
+  const w16 = (v, n) => { v.push(n & 255, (n >> 8) & 255); }, w32 = (v, n) => { v.push(n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255); };
+  for (const f of files) {
+    const nm = U8(f.name), crc = crc32(f.data), sz = f.data.length, h = [];
+    w32(h, 0x04034b50); w16(h, 20); w16(h, 0x0800); w16(h, 0); w16(h, 0); w16(h, 0x21); w32(h, crc); w32(h, sz); w32(h, sz); w16(h, nm.length); w16(h, 0);
+    parts.push(new Uint8Array(h), nm, f.data);
+    const c = []; w32(c, 0x02014b50); w16(c, 20); w16(c, 20); w16(c, 0x0800); w16(c, 0); w16(c, 0); w16(c, 0x21); w32(c, crc); w32(c, sz); w32(c, sz); w16(c, nm.length); w16(c, 0); w16(c, 0); w16(c, 0); w16(c, 0); w32(c, 0); w32(c, off);
+    cen.push(new Uint8Array(c), nm); off += h.length + nm.length + sz;
+  }
+  const cs = cen.reduce((a, b) => a + b.length, 0), e = []; w32(e, 0x06054b50); w16(e, 0); w16(e, 0); w16(e, files.length); w16(e, files.length); w32(e, cs); w32(e, off); w16(e, 0);
+  const all = [...parts, ...cen, new Uint8Array(e)], out = new Uint8Array(all.reduce((a, b) => a + b.length, 0)); let o = 0;
+  for (const a of all) { out.set(a, o); o += a.length; } return out;
+}
+async function unzip(bytes) {     // -> Map(name -> Uint8Array); supports stored + deflate
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength); let e = bytes.length - 22;
+  while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error("ملف غير صالح (ليس xlsx)");
+  const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true); const out = new Map();
+  for (let i = 0; i < n; i++) {
+    const meth = dv.getUint16(p + 10, true), csz = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), lo = dv.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(bytes.subarray(p + 46, p + 46 + nl)); p += 46 + nl + xl + cl;
+    const lnl = dv.getUint16(lo + 26, true), lxl = dv.getUint16(lo + 28, true), ds = lo + 30 + lnl + lxl, raw = bytes.subarray(ds, ds + csz);
+    if (meth === 0) out.set(name, raw);
+    else if (meth === 8) { const s = new Blob([raw]).stream().pipeThrough(new DecompressionStream("deflate-raw")); out.set(name, new Uint8Array(await new Response(s).arrayBuffer())); }
+  }
+  return out;
+}
+const xe = (s) => String(s ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const colL = (i) => String.fromCharCode(65 + i);
+function sheetXml(rows, opts = {}) {   // rows: array of arrays; value types: string (text) | number
+  let x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"' + (opts.rtl ? ' rightToLeft="1"' : "") + '>' + (opts.freeze ? '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>' : "") + '</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>';
+  if (opts.widths) x += "<cols>" + opts.widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("") + "</cols>";
+  x += "<sheetData>";
+  rows.forEach((r, ri) => {
+    x += `<row r="${ri + 1}">`;
+    r.forEach((v, ci) => {
+      if (v === "" || v == null) return; const ref = colL(ci) + (ri + 1);
+      if (typeof v === "number") x += `<c r="${ref}"><v>${v}</v></c>`;
+      else x += `<c r="${ref}" t="inlineStr"${opts.text ? ' s="1"' : ""}><is><t xml:space="preserve">${xe(v)}</t></is></c>`;
+    });
+    x += "</row>";
+  });
+  return x + "</sheetData></worksheet>";
+}
+function buildXlsx(people, meta) {
+  const fam = families(); const rows = [LK.headers.slice()];
+  for (const f of fam) for (const p of f.members) rows.push(FIELDS.map(k => (k === "ph" && SESSION && !can("phone.view")) ? "" : (p[k] || "").toString().trim()));
+  const lk = (arr, numeric) => [["Id", "ArName", "EnName"]].concat(arr.map(x => [numeric ? +x.c : x.c, x.ar, x.en]));
+  const sheets = [
+    ["Sheet1", sheetXml(rows, { text: true, widths: [15, 13, 14, 14, 14, 14, 15, 11, 13, 15, 12, 14, 17, 14, 14], freeze: true })],
+    [LK.sheetNames.doc, sheetXml(lk(LK.doc, true))], [LK.sheetNames.gender, sheetXml(lk(LK.gender, true))], [LK.sheetNames.marital, sheetXml(lk(LK.marital, true))],
+    [LK.sheetNames.gov, sheetXml([["Code", "ArName", "EnName"]].concat(LK.gov.map(x => [x.c, x.ar, x.en])), { text: true })],
+    [LK.sheetNames.loc, sheetXml([["Code", "ArName", "EnName"]].concat(LK.loc.map(x => [x.c, x.ar, x.en])), { text: true })],
+    [LK.sheetNames.relation, sheetXml(lk(LK.relation, true))]
+  ];
+  const files = [];
+  files.push({ name: "[Content_Types].xml", data: U8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("") + "</Types>") });
+  files.push({ name: "_rels/.rels", data: U8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>') });
+  files.push({ name: "xl/workbook.xml", data: U8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + sheets.map((s, i) => `<sheet name="${xe(s[0]).replace(/"/g, "&quot;")}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("") + "</sheets></workbook>") });
+  files.push({ name: "xl/_rels/workbook.xml.rels", data: U8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("") + `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`) });
+  files.push({ name: "xl/styles.xml", data: U8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="49" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>') });
+  sheets.forEach((s, i) => files.push({ name: `xl/worksheets/sheet${i + 1}.xml`, data: U8(s[1]) }));
+  if (meta) {     // traceability: who exported, when, from which device (document properties; does not touch Sheet1)
+    const dec = (n) => new TextDecoder().decode(files.find(f => f.name === n).data), put = (n, t) => { files.find(f => f.name === n).data = U8(t); };
+    put("[Content_Types].xml", dec("[Content_Types].xml").replace("</Types>", '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>'));
+    put("_rels/.rels", dec("_rels/.rels").replace("</Relationships>", '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>'));
+    files.push({ name: "docProps/core.xml", data: U8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:creator>${xe(meta.by)}</dc:creator><dc:description>export:${xe(meta.id)};device:${xe(meta.dv)};records:${meta.n}</dc:description><dcterms:created xsi:type="dcterms:W3CDTF">${meta.at}</dcterms:created></cp:coreProperties>`) });
+  }
+  return zipStore(files);
+}
+function normDob(v, numeric) {    // same normalisation as the Excel tool: everything -> dd/mm/yyyy text
+  if (v == null || v === "") return "";
+  let s = String(v).trim();
+  if (numeric && /^\d+(\.\d+)?$/.test(s) && +s > 10000 && +s < 60000) { const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(+s) * 86400000); return String(d.getUTCDate()).padStart(2, "0") + "/" + String(d.getUTCMonth() + 1).padStart(2, "0") + "/" + d.getUTCFullYear(); }
+  let m = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/.exec(s); let d, mo, y;
+  if (m) { d = +m[1]; mo = +m[2]; y = +m[3]; }
+  else if ((m = /^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/.exec(s))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+  else return s;
+  const t = new Date(y, mo - 1, d); if (t.getFullYear() !== y || t.getMonth() !== mo - 1 || t.getDate() !== d) return s;
+  return String(d).padStart(2, "0") + "/" + String(mo).padStart(2, "0") + "/" + y;
+}
+async function readXlsx(bytes) {  // -> array of person objects from the first sheet named Sheet1 (or first sheet)
+  const z = await unzip(bytes), dp = new DOMParser(), txt = (n) => new TextDecoder().decode(z.get(n));
+  const wbx = dp.parseFromString(txt("xl/workbook.xml"), "application/xml"), rels = dp.parseFromString(txt("xl/_rels/workbook.xml.rels"), "application/xml");
+  const sh = [...wbx.getElementsByTagName("sheet")]; const target = sh.find(s => s.getAttribute("name") === "Sheet1") || sh[0];
+  const rid = target.getAttribute("r:id") || target.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+  const rel = [...rels.getElementsByTagName("Relationship")].find(r => r.getAttribute("Id") === rid); let path = rel.getAttribute("Target");
+  path = path.startsWith("/") ? path.slice(1) : "xl/" + path;
+  const ss = [];
+  if (z.has("xl/sharedStrings.xml")) { const d = dp.parseFromString(txt("xl/sharedStrings.xml"), "application/xml"); for (const si of d.getElementsByTagName("si")) ss.push([...si.getElementsByTagName("t")].map(t => t.textContent).join("")); }
+  const sd = dp.parseFromString(txt(path), "application/xml"), rows = [];
+  for (const r of sd.getElementsByTagName("row")) {
+    const row = {};
+    for (const c of r.getElementsByTagName("c")) {
+      const ref = c.getAttribute("r"), col = ref.replace(/\d+/g, ""), t = c.getAttribute("t"); let v = "";
+      if (t === "s") v = ss[+c.getElementsByTagName("v")[0].textContent]; else if (t === "inlineStr") v = [...c.getElementsByTagName("t")].map(x => x.textContent).join("");
+      else { const ve = c.getElementsByTagName("v")[0]; v = ve ? ve.textContent : ""; if (t !== "str" && v !== "") v = { __num: v }; else v = v; }
+      row[col] = v;
+    }
+    rows.push(row);
+  }
+  const cols = "ABCDEFGHIJKLMNO".split(""), out = [];
+  for (const row of rows.slice(1)) {
+    const g = (c) => { const v = row[c]; return v == null ? "" : (typeof v === "object" ? String(v.__num) : String(v)).trim(); };
+    if (!g("A") && !g("C")) continue;
+    const p = { uid: uid() };
+    cols.forEach((c, i) => { p[FIELDS[i]] = g(c); });
+    p.dob = normDob(row.G && typeof row.G === "object" ? row.G.__num : g("G"), row.G && typeof row.G === "object");
+    if (row.J && typeof row.J === "object" && p.ph.length === 9 && /^(59|56)/.test(p.ph)) p.ph = "0" + p.ph;
+    out.push(p);
+  }
+  return out;
+}
+
+/* ============================== crypto (PBKDF2-SHA256: WebCrypto when available, pure-JS fallback) ============================== */
+const K256 = new Int32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+const IV256 = () => new Int32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
+function sha256Compress(st, w) {
+  for (let i = 16; i < 64; i++) { const a = w[i - 15], b = w[i - 2]; const s0 = ((a >>> 7) | (a << 25)) ^ ((a >>> 18) | (a << 14)) ^ (a >>> 3); const s1 = ((b >>> 17) | (b << 15)) ^ ((b >>> 19) | (b << 13)) ^ (b >>> 10); w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0; }
+  let a = st[0], b = st[1], c = st[2], d = st[3], e = st[4], f = st[5], g = st[6], h = st[7];
+  for (let i = 0; i < 64; i++) {
+    const S1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7)); const ch = (e & f) ^ (~e & g); const t1 = (h + S1 + ch + K256[i] + w[i]) | 0;
+    const S0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10)); const mj = (a & b) ^ (a & c) ^ (b & c); const t2 = (S0 + mj) | 0;
+    h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+  }
+  st[0] = (st[0] + a) | 0; st[1] = (st[1] + b) | 0; st[2] = (st[2] + c) | 0; st[3] = (st[3] + d) | 0; st[4] = (st[4] + e) | 0; st[5] = (st[5] + f) | 0; st[6] = (st[6] + g) | 0; st[7] = (st[7] + h) | 0;
+}
+function sha256From(state0, bytes, prefixLen) {   // continue hashing from a state that already consumed prefixLen bytes
+  const st = state0.slice(), total = prefixLen + bytes.length, padLen = ((bytes.length + 9 + 63) >> 6) << 6, buf = new Uint8Array(padLen); buf.set(bytes); buf[bytes.length] = 0x80;
+  const dv = new DataView(buf.buffer); dv.setUint32(padLen - 4, (total * 8) >>> 0); dv.setUint32(padLen - 8, Math.floor(total / 0x20000000));
+  const w = new Int32Array(64);
+  for (let o = 0; o < padLen; o += 64) { for (let i = 0; i < 16; i++) w[i] = dv.getInt32(o + i * 4); sha256Compress(st, w); }
+  return st;
+}
+const words2bytes = (st) => { const o = new Uint8Array(32), dv = new DataView(o.buffer); for (let i = 0; i < 8; i++) dv.setInt32(i * 4, st[i]); return o; };
+function pbkdf2JS(pw, salt, iter) {
+  let key = pw; if (key.length > 64) key = words2bytes(sha256From(IV256(), key, 0));
+  const ip = new Uint8Array(64).fill(0x36), op = new Uint8Array(64).fill(0x5c); key.forEach((b, i) => { ip[i] ^= b; op[i] ^= b; });
+  const w = new Int32Array(64), blk = (arr) => { const dv = new DataView(arr.buffer); for (let i = 0; i < 16; i++) w[i] = dv.getInt32(i * 4); };
+  const sI = IV256(); blk(ip); sha256Compress(sI, w); const sO = IV256(); blk(op); sha256Compress(sO, w);
+  const m = new Uint8Array(salt.length + 4); m.set(salt); m[m.length - 1] = 1;
+  let U = sha256From(sO, words2bytes(sha256From(sI, m, 64)), 64); const T = U.slice();
+  for (let n = 1; n < iter; n++) {
+    const s1 = sI.slice(); for (let i = 0; i < 8; i++) w[i] = U[i]; w[8] = 0x80000000 | 0; for (let i = 9; i < 15; i++) w[i] = 0; w[15] = 768; sha256Compress(s1, w);
+    const s2 = sO.slice(); for (let i = 0; i < 8; i++) w[i] = s1[i]; w[8] = 0x80000000 | 0; for (let i = 9; i < 15; i++) w[i] = 0; w[15] = 768; sha256Compress(s2, w);
+    U = s2; for (let i = 0; i < 8; i++) T[i] ^= U[i];
+  }
+  return words2bytes(T);
+}
+async function pbkdf2(pw, salt, iter) {
+  const pb = new TextEncoder().encode(pw);
+  if (window.crypto && crypto.subtle && !window.__noSubtle) { const k = await crypto.subtle.importKey("raw", pb, "PBKDF2", false, ["deriveBits"]); return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: iter }, k, 256)); }
+  await new Promise(r => setTimeout(r, 20)); return pbkdf2JS(pb, salt, iter);
+}
+const b64 = (u) => btoa(String.fromCharCode(...u)), unb64 = (s) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function hashPw(pw, rec) { const salt = rec && rec.s ? unb64(rec.s) : crypto.getRandomValues(new Uint8Array(16)), iter = rec && rec.i ? rec.i : 100000; return { s: b64(salt), i: iter, h: b64(await pbkdf2(pw, salt, iter)) }; }
+const checkPw = async (pw, rec) => rec && (await hashPw(pw, rec)).h === rec.h;
+
+/* ============================== permissions, roles, scope ============================== */
+const PERMS = [
+  ["camp.manage", "إدارة المخيمات", "النظام"], ["user.manage", "إدارة المستخدمين", "النظام"], ["role.manage", "بناء الأدوار وتعديل صلاحياتها", "النظام"], ["audit.view", "عرض سجل التدقيق", "النظام"],
+  ["person.create", "إضافة أسر وأفراد", "الإدخال"], ["person.view.any", "رؤية سجلات الآخرين (ضمن النطاق)", "الإدخال"], ["person.edit.own", "تعديل سجلاته", "الإدخال"], ["person.edit.any", "تعديل سجلات غيره", "الإدخال"],
+  ["person.delete.own", "حذف سجلاته", "الإدخال"], ["person.delete.any", "حذف سجلات غيره", "الإدخال"], ["person.restore", "استرجاع المحذوفات", "الإدخال"],
+  ["report.view", "العدّادات وقائمة المشاكل", "التقارير والبيانات"], ["export.sheet1", "تصدير Excel (Sheet1)", "التقارير والبيانات"], ["import.data", "استيراد ودمج ملفات", "التقارير والبيانات"], ["backup.make", "نسخة احتياطية", "التقارير والبيانات"],
+  ["phone.view", "رؤية أرقام الجوال", "بيانات حساسة"]
+];
+const ALLP = PERMS.map(p => p[0]);
+const DEFAULT_ROLES = () => [
+  { id: "admin", name: "مدير نظام", system: true, perms: ALLP.slice() },
+  { id: "manager", name: "مسؤول", perms: ["user.manage", "audit.view", "person.create", "person.view.any", "person.edit.own", "person.edit.any", "person.delete.own", "person.delete.any", "person.restore", "report.view", "export.sheet1", "import.data", "backup.make", "phone.view"] },
+  { id: "supervisor", name: "مشرف", perms: ["audit.view", "person.create", "person.view.any", "person.edit.own", "person.edit.any", "person.delete.own", "person.delete.any", "person.restore", "report.view", "export.sheet1", "import.data", "backup.make", "phone.view"] },
+  { id: "researcher", name: "باحث", perms: ["person.create", "person.edit.own", "person.delete.own", "report.view", "export.sheet1", "backup.make", "phone.view"] },
+  { id: "reviewer", name: "مراجع", perms: ["person.view.any", "audit.view", "report.view", "export.sheet1", "phone.view"] }
+];
+let SESSION = null, lastAct = Date.now();
+const me = () => SESSION ? DB.users.find(u => u.id === SESSION.uid) : null;
+const myRole = () => { const u = me(); return u ? DB.roles.find(r => r.id === u.roleId) : null; };
+const can = (k) => { const r = myRole(), u = me(); return !!(r && u && u.active !== false && r.perms.includes(k)); };
+const isAdmin = () => !!(myRole() && myRole().id === "admin");
+const myCamps = () => !SESSION ? DB.camps : isAdmin() ? DB.camps : DB.camps.filter(c => (me().camps || []).includes(c.id));
+const live = () => DB.people.filter(p => !p.deleted);
+const inScope = (p) => { if (!SESSION || isAdmin()) return true; const u = me(); if (p.cb === u.id) return true; return (u.camps || []).includes(p.campId) && (!(u.locs || []).length || u.locs.includes(p.loc)); };
+const visible = () => live().filter(p => !SESSION || (inScope(p) && (can("person.view.any") || p.cb === me().id)));
+const canEditRec = (p) => !p.uid ? can("person.create") : (p.cb && me() && p.cb === me().id ? can("person.edit.own") : can("person.edit.any"));
+const canDelRec = (p) => (p.cb && me() && p.cb === me().id) ? can("person.delete.own") : can("person.delete.any");
+const roleName = (id) => (DB.roles.find(r => r.id === id) || {}).name || "؟";
+const assignableRoles = () => isAdmin() ? DB.roles : DB.roles.filter(r => r.id !== "admin" && !r.perms.some(k => ["user.manage", "role.manage", "camp.manage"].includes(k)) && r.perms.every(k => myRole().perms.includes(k)));   // never grant what you do not have yourself
+const locsWithin = (locs) => isAdmin() || !(me().locs || []).length || ((locs || []).length > 0 && locs.every(l => me().locs.includes(l)));
+function canManageUser(t) { if (isAdmin()) return true; if (!can("user.manage") || !t) return false; if (t.id === me().id) return false; return assignableRoles().some(r => r.id === t.roleId) && (t.camps || []).every(c => (me().camps || []).includes(c)) && locsWithin(t.locs); }
+const SENS = new Set(["user_create", "user_edit", "role_create", "role_edit", "role_delete", "camp_create", "camp_edit", "pack_export", "export_xlsx", "backup", "import", "wipe", "recover_ok", "password_change", "reauth_fail"]);
+const hex = (u) => [...u].map(b => b.toString(16).padStart(2, "0")).join("");
+const chainHash = (prev, e) => hex(words2bytes(sha256From(IV256(), U8(prev + "|" + [e.t, e.u, e.un, e.a, e.g, e.d, e.dv].join("|")), 0)));
+function audit(action, target, detail) {
+  const e = { t: Date.now(), u: SESSION ? SESSION.uid : null, un: me() ? me().username : "", a: action, g: target || "", d: detail || "", dv: DB.deviceId, s: SENS.has(action) ? 1 : 0 };
+  const last = DB.audit[DB.audit.length - 1]; e.h = chainHash((last && last.h) || DB.auditBase || "0", e); DB.audit.push(e);
+  if (DB.audit.length > 5000) { const cut = DB.audit.splice(0, DB.audit.length - 5000); DB.auditBase = cut[cut.length - 1].h || DB.auditBase; } save();
+}
+function verifyAudit() { let prev = DB.auditBase || "0"; for (let i = 0; i < DB.audit.length; i++) { const e = DB.audit[i]; if (!e.h) { prev = "0"; continue; } if (chainHash(prev, e) !== e.h) return i; prev = e.h; } return -1; }
+const allAudit = () => DB.audit.concat((DB.auditExt || []).map(e => ({ ...e, ext: true }))).sort((a, b) => b.t - a.t);
+function mergeExtAudit(list, by) { DB.auditExt = DB.auditExt || []; const have = new Set(DB.auditExt.map(e => e.h).concat(DB.audit.map(e => e.h))); let n = 0; for (const e of list || []) if (e.h && !have.has(e.h)) { DB.auditExt.push({ ...e, x: by || "؟" }); have.add(e.h); n++; } if (DB.auditExt.length > 5000) DB.auditExt.splice(0, DB.auditExt.length - 5000); return n; }
+// ask for the password again before sensitive actions (stolen unlocked device / abuse protection)
+function askPassword(title) {
+  return new Promise(res => {
+    const d = document.createElement("div"); d.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px";
+    d.innerHTML = `<div class="card" style="width:100%;max-width:380px"><b>${esc(title)}</b><div style="margin-top:8px"><label>كلمة المرور</label><input id="rp" type="password" autocomplete="current-password"></div><div class="row" style="margin-top:10px"><button class="btn" id="rok">تأكيد</button><button class="btn sec" id="rno">إلغاء</button></div></div>`;
+    document.body.appendChild(d); const done = v => { d.remove(); res(v); }, inp = d.querySelector("#rp");
+    d.querySelector("#rok").onclick = () => done(inp.value); d.querySelector("#rno").onclick = () => done(null); inp.onkeydown = e => { if (e.key === "Enter") done(inp.value); }; inp.focus();
+  });
+}
+async function reauth(why) { if (!SESSION) return true; const pw = await askPassword(why); if (pw == null) return false; if (!(await checkPw(pw, me().pw))) { audit("reauth_fail", why, ""); toast("كلمة المرور غير صحيحة"); return false; } return true; }
+const intl = (n) => { n = (n || "").replace(/\D/g, ""); const cc = DB.meta.cc || "970"; return n.startsWith("0") ? cc + n.slice(1) : n.startsWith(cc) ? n : cc + n; };
+const emailOK = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+const phoneOK = (p) => /^\d{9,10}$/.test(p);
+function dateInRange(u) { const t = today(), f = parseDob(u.from), to = parseDob(u.to); return (!u.from || (f && f <= t)) && (!u.to || (to && to >= t)); }
+
+/* ============================== UI ============================== */
+let VIEW = { name: "login" };
+function toast(t) { const d = document.createElement("div"); d.className = "toast"; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2800); }
+function go(name, arg) { VIEW = { name, arg }; render(); window.scrollTo(0, 0); }
+function setBar(html) { $("#bar").innerHTML = html; }
+function dl(bytes, name, type) { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes], { type })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
+const stamp = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+const who = () => { const w = ((me() || {}).username || "").replace(/[^A-Za-z0-9_\-]/g, ""); return /[A-Za-z0-9]/.test(w) ? w : "entry"; };
+const appTitle = () => { const cs = myCamps(); return cs.length === 1 ? cs[0].name : (DB.meta.camp || "نظام إدخال بيانات الأسر"); };
+const lock = () => { if (document.activeElement) document.activeElement.blur(); };
+
+function render() {
+  const v = validateAll();
+  $("#ttl").textContent = SESSION ? appTitle() : (DB.meta.camp || "نظام إدخال بيانات الأسر");
+  $("#sub").textContent = SESSION ? `${me().name} • ${roleName(me().roleId)} • يعمل بدون إنترنت` : "يعمل بدون إنترنت";
+  $("#hb").style.display = SESSION ? "" : "none";
+  if (!SESSION) return ({ setup: viewSetup, login: viewLogin, recover: viewRecover, recovery: viewRecoveryCode }[VIEW.name] || viewLogin)();
+  ({ home: viewHome, family: viewFamily, form: viewForm, data: viewData, quality: viewQuality, menu: viewMenu, users: viewUsers, userform: viewUserForm, roles: viewRoles, roleform: viewRoleForm, camps: viewCamps, campform: viewCampForm, audit: viewAudit, trash: viewTrash, account: viewAccount }[VIEW.name] || viewHome)(v);
+}
+
+/* ---------- first run / login / recovery ---------- */
+function fieldHtml(id, label, extra = "", val = "", type = "text", cls = "") { return `<div><label>${label}</label><input id="${id}" type="${type}" class="${cls}" value="${esc(val)}" ${extra}></div>`; }
+function viewSetup() {
+  const gov = DB.meta.defGov || "65";
+  $("#view").innerHTML = `<div class="card"><b>إعداد النظام لأول مرة</b><div class="hint">ستنشئ حساب <b>مدير النظام</b> وأول مخيم. بعدها تضيف المستخدمين والأدوار. (إذا كنت باحثاً وعندك ملف «حزمة حسابات» فاستورده من شاشة الدخول.)</div></div>
+  <div class="card"><b>المخيم الأول</b><div class="grid" style="margin-top:8px">
+   ${fieldHtml("s_camp", "اسم المخيم", "", "")}
+   <div><label>المحافظة</label><select id="s_gov" onchange="document.getElementById('s_loc').innerHTML=locOptions(this.value,'')">${opt(LK.gov, gov)}</select></div>
+   <div class="full"><label>التجمع السكاني</label><select id="s_loc">${locOptions(gov, "")}</select></div></div></div>
+  <div class="card"><b>مدير النظام</b><div class="grid" style="margin-top:8px">
+   ${fieldHtml("s_name", "الاسم الكامل")}${fieldHtml("s_user", "اسم المستخدم (أحرف لاتينية وأرقام)", 'autocomplete="username" dir="ltr"', "", "text", "num")}
+   ${fieldHtml("s_pw", "كلمة المرور (8 أحرف فأكثر)", 'autocomplete="new-password"', "", "password")}${fieldHtml("s_pw2", "تأكيد كلمة المرور", 'autocomplete="new-password"', "", "password")}
+   ${fieldHtml("s_phone", "الجوال", 'inputmode="tel"', "", "text", "num")}${fieldHtml("s_wa", "واتساب (اتركه فارغاً إن كان نفسه)", 'inputmode="tel"', "", "text", "num")}
+   <div class="full">${fieldHtml("s_mail", "البريد الإلكتروني", 'dir="ltr"', "", "email", "num")}</div></div></div>
+  <ul class="msgs" id="s_msg"></ul>`;
+  setBar(`<button class="btn" onclick="doSetup()">إنشاء النظام</button><button class="btn sec" onclick="go('login')">رجوع</button>`);
+}
+async function doSetup() {
+  const v = (id) => ($("#" + id).value || "").trim(), err = [];
+  if (!v("s_camp")) err.push("اسم المخيم مطلوب"); if (!L.gov[v("s_gov")]) err.push("اختر المحافظة"); if (!L.loc[v("s_loc")]) err.push("اختر التجمع السكاني");
+  if (!v("s_name")) err.push("الاسم مطلوب"); if (!/^[A-Za-z0-9._-]{3,}$/.test(v("s_user"))) err.push("اسم المستخدم: 3 أحرف أو أرقام لاتينية فأكثر");
+  if (($("#s_pw").value || "").length < 8) err.push("كلمة المرور أقل من 8 أحرف"); if ($("#s_pw").value !== $("#s_pw2").value) err.push("تأكيد كلمة المرور لا يطابق");
+  if (v("s_phone") && !phoneOK(v("s_phone"))) err.push("الجوال: 9 أو 10 أرقام"); if (v("s_wa") && !phoneOK(v("s_wa"))) err.push("الواتساب: 9 أو 10 أرقام"); if (v("s_mail") && !emailOK(v("s_mail"))) err.push("البريد غير صحيح");
+  if (err.length) { $("#s_msg").innerHTML = err.map(e => `<li class="e">❌ ${esc(e)}</li>`).join(""); return; }
+  const code = [...crypto.getRandomValues(new Uint8Array(12))].map(b => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("").replace(/(.{4})(?=.)/g, "$1-");
+  const camp = { id: uid(), name: v("s_camp"), gov: v("s_gov"), locs: [v("s_loc")] };
+  DB.roles = DEFAULT_ROLES(); DB.camps = [camp]; DB.deviceId = DB.deviceId || uid(); DB.meta.camp = camp.name; DB.meta.defGov = camp.gov; DB.meta.defLoc = camp.locs[0];
+  const admin = { id: uid(), name: v("s_name"), username: v("s_user").toLowerCase(), pw: await hashPw($("#s_pw").value), roleId: "admin", camps: [camp.id], locs: [], phone: v("s_phone"), wa: v("s_wa"), email: v("s_mail"), active: true, from: "", to: "", ca: Date.now(), ua: Date.now() };
+  admin.rec = await hashPw(code.replace(/-/g, ""));
+  DB.users = [admin];
+  for (const p of DB.people) { p.campId = p.campId || camp.id; p.cb = p.cb || admin.id; p.ca = p.ca || Date.now(); }
+  SESSION = { uid: admin.id }; audit("setup", camp.name, "تم إنشاء النظام"); SESSION = null; save();
+  VIEW = { name: "recovery", arg: { code } }; render();
+}
+function viewRecoveryCode() {
+  $("#view").innerHTML = `<div class="card"><b>✅ تم إنشاء النظام</b><div class="banner" style="margin-top:8px"><b>رمز الاسترداد (يُعرض مرة واحدة فقط):</b><div class="num" style="font-size:26px;font-weight:700;margin:8px 0;letter-spacing:2px">${esc(VIEW.arg.code)}</div>اكتبه على ورقة واحفظه في مكان آمن. هو الطريقة الوحيدة لاستعادة حساب مدير النظام إن نسيت كلمة المرور (لا يوجد إنترنت ولا سيرفر).</div>
+  <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="ack" style="width:24px;min-height:24px"> سجّلت الرمز في مكان آمن</label></div>`;
+  setBar(`<button class="btn" onclick="if(!document.getElementById('ack').checked)return toast('أكّد أنك سجّلت الرمز');go('login')">متابعة إلى الدخول</button>`);
+}
+function failInfo(u) { try { return JSON.parse(localStorage.getItem("camp_fail_" + u) || "{}"); } catch (e) { return {}; } }
+function failSet(u, o) { try { o ? localStorage.setItem("camp_fail_" + u, JSON.stringify(o)) : localStorage.removeItem("camp_fail_" + u); } catch (e) { } }
+function viewLogin() {
+  if (!DB.users.length) {
+    $("#view").innerHTML = `<div class="card"><b>مرحباً — هذا الجهاز غير مُعدّ بعد</b><div class="hint">اختر ما يناسبك:</div></div>
+    <div class="card"><b>① أنا باحث / مشرف عندي «حزمة حسابات»</b><div class="hint">استورد الملف الذي أرسله لك مدير النظام (JSON) ثم سجّل الدخول باسمك.</div>
+     <div class="row" style="margin-top:8px"><input id="packfile" type="file" accept=".json" style="max-width:300px"><button class="btn sec small" onclick="doImportPack()">استيراد الحزمة</button></div></div>
+    <div class="card"><b>② أنا مدير النظام وأريد إنشاء نظام جديد</b><div class="hint">تنشئ أول مخيم وحساب المدير ورمز الاسترداد.</div><div class="row" style="margin-top:8px"><button class="btn gold" onclick="go('setup')">إعداد نظام جديد</button></div></div>`;
+    setBar(""); return;
+  }
+  $("#view").innerHTML = `<div class="card"><b>تسجيل الدخول</b><div class="grid" style="margin-top:8px"><div class="full"><label>اسم المستخدم</label><input id="l_user" class="num" dir="ltr" autocomplete="username" autocapitalize="none" autofocus></div>
+  <div class="full"><label>كلمة المرور</label><input id="l_pw" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div></div><ul class="msgs" id="l_msg"></ul></div>
+  <div class="card"><div class="hint">جهاز جديد لباحث؟ استورد <b>حزمة الحسابات</b> التي أرسلها لك المسؤول (ملف JSON):</div>
+   <div class="row" style="margin-top:8px"><input id="packfile" type="file" accept=".json" style="max-width:300px"><button class="btn sec small" onclick="doImportPack()">استيراد الحزمة</button></div>
+   <div class="row" style="margin-top:10px"><button class="btn sec small" onclick="go('recover')">نسيت كلمة المرور (مدير النظام)</button></div></div>`;
+  setBar(`<button class="btn" id="lb" onclick="doLogin()">دخول</button>`);
+}
+async function doLogin() {
+  const un = ($("#l_user").value || "").trim().toLowerCase(), pw = $("#l_pw").value || "", msg = (t) => { $("#l_msg").innerHTML = `<li class="e">❌ ${esc(t)}</li>`; };
+  if (!un || !pw) return msg("أدخل اسم المستخدم وكلمة المرور");
+  const f = failInfo(un); if (f.n >= 5 && Date.now() - f.t < 5 * 60000) return msg("تم قفل الحساب مؤقتاً بعد محاولات خاطئة. حاول بعد 5 دقائق.");
+  $("#lb").disabled = true; $("#lb").textContent = "جارٍ التحقق…";
+  const u = DB.users.find(x => x.username === un), ok = u ? await checkPw(pw, u.pw) : false;
+  $("#lb") && ($("#lb").disabled = false, $("#lb").textContent = "دخول");
+  if (!ok) { failSet(un, { n: ((f.n || 0) >= 5 && Date.now() - f.t >= 5 * 60000 ? 0 : (f.n || 0)) + 1, t: Date.now() }); audit("login_fail", un, ""); return msg("اسم المستخدم أو كلمة المرور غير صحيحة"); }
+  if (u.active === false) return msg("هذا الحساب موقوف. راجع المسؤول.");
+  if (!dateInRange(u)) return msg("انتهت صلاحية هذا الحساب أو لم تبدأ بعد.");
+  failSet(un, null); SESSION = { uid: u.id, prev: u.lastLogin || 0 }; u.lastLogin = Date.now(); lastAct = Date.now(); audit("login", u.username, ""); VIEW = { name: "home" }; render();
+}
+function logout(why) { if (SESSION) audit("logout", me().username, why || ""); SESSION = null; VIEW = { name: "login" }; render(); if (why) toast(why); }
+function viewRecover() {
+  $("#view").innerHTML = `<div class="card"><b>استعادة حساب مدير النظام</b><div class="hint">أدخل رمز الاسترداد الذي حصلت عليه عند إنشاء النظام، وكلمة مرور جديدة.</div><div class="grid" style="margin-top:8px">
+   ${fieldHtml("r_code", "رمز الاسترداد", 'dir="ltr" autocapitalize="characters"', "", "text", "num")}${fieldHtml("r_user", "اسم مستخدم مدير النظام", 'dir="ltr" autocapitalize="none"', "", "text", "num")}
+   ${fieldHtml("r_pw", "كلمة المرور الجديدة", "", "", "password")}${fieldHtml("r_pw2", "تأكيد", "", "", "password")}</div><ul class="msgs" id="r_msg"></ul></div>`;
+  setBar(`<button class="btn" onclick="doRecover()">إعادة تعيين</button><button class="btn sec" onclick="go('login')">رجوع</button>`);
+}
+async function doRecover() {
+  const msg = (t) => { $("#r_msg").innerHTML = `<li class="e">❌ ${esc(t)}</li>`; }, u = DB.users.find(x => x.username === ($("#r_user").value || "").trim().toLowerCase() && x.roleId === "admin");
+  if (!u || !u.rec) return msg("حساب غير موجود أو لا يملك رمز استرداد"); if (($("#r_pw").value || "").length < 8) return msg("كلمة المرور أقل من 8 أحرف"); if ($("#r_pw").value !== $("#r_pw2").value) return msg("التأكيد لا يطابق");
+  if (!(await checkPw(($("#r_code").value || "").replace(/[\s-]/g, "").toUpperCase(), u.rec))) { audit("recover_fail", u.username, ""); return msg("رمز الاسترداد غير صحيح"); }
+  u.pw = await hashPw($("#r_pw").value); u.ua = Date.now(); failSet(u.username, null); audit("recover_ok", u.username, ""); save(); toast("تم تعيين كلمة المرور. سجّل الدخول."); go("login");
+}
+
+/* ---------- packages (camps + roles + users) for other devices ---------- */
+async function exportPack() {
+  if (!can("user.manage")) return; if (!(await reauth("لإنشاء حزمة الحسابات أدخل كلمة مرورك"))) return;
+  const users = DB.users.filter(u => u.roleId !== "admin" && u.active !== false && (isAdmin() || canManageUser(u)));
+  const camps = DB.camps.filter(c => isAdmin() || (me().camps || []).includes(c.id));
+  const roleIds = new Set(users.map(u => u.roleId)), roles = DB.roles.filter(r => roleIds.has(r.id));
+  const pack = { type: "camp-package", v: 1, at: Date.now(), by: me().username, camps, roles, users, cc: DB.meta.cc };
+  audit("pack_export", `${users.length} مستخدم`, ""); dl(JSON.stringify(pack), `camp_package_${stamp()}.json`, "application/json"); toast(`حزمة: ${users.length} مستخدم، ${camps.length} مخيم`);
+}
+async function doImportPack() {
+  const f = $("#packfile").files[0]; if (!f) return toast("اختر ملف الحزمة أولاً");
+  try { const r = importPackObj(JSON.parse(await f.text())); toast(`تم: ${r.users} مستخدم، ${r.camps} مخيم. سجّل الدخول.`); render(); } catch (e) { toast("فشل استيراد الحزمة: " + e.message); }
+}
+function importPackObj(pk) {
+  if (!pk || pk.type !== "camp-package") throw new Error("ليس ملف حزمة حسابات");
+  const up = (arr, items, key) => { for (const it of items || []) { const i = arr.findIndex(x => x[key] === it[key]); if (i < 0) arr.push(it); else if ((it.ua || it.ca || 0) >= (arr[i].ua || arr[i].ca || 0) || arr[i].system === undefined) arr[i] = { ...arr[i], ...it }; } };
+  for (const r of pk.roles || []) if (r.id === "admin") throw new Error("الحزمة لا يجوز أن تحمل دور مدير النظام");
+  up(DB.camps, pk.camps, "id"); up(DB.roles, pk.roles, "id"); up(DB.users, (pk.users || []).filter(u => u.roleId !== "admin"), "id");
+  if (!DB.roles.some(r => r.id === "admin")) DB.roles.unshift(DEFAULT_ROLES()[0]);
+  DB.deviceId = DB.deviceId || uid(); if (pk.cc) DB.meta.cc = pk.cc; save(); return { users: (pk.users || []).length, camps: (pk.camps || []).length };
+}
+
+/* ---------- menu ---------- */
+function viewMenu() {
+  const it = (ic, t, f, ok = true) => ok ? `<div class="mem" onclick="${f}"><div class="t"><b>${ic} ${t}</b></div></div>` : "";
+  $("#view").innerHTML = `<div class="card">${it("📤", "تصدير / نسخة احتياطية / استيراد", "go('data')", can("export.sheet1") || can("backup.make") || can("import.data"))}
+   ${it("⚠", "قائمة المشاكل", "go('quality')", can("report.view"))}${it("🗑", "المحذوفات", "go('trash')", can("person.restore") || can("person.delete.own"))}
+   ${it("👥", "المستخدمون (الموظفون)", "go('users')", can("user.manage"))}${it("🔑", "الأدوار والصلاحيات", "go('roles')", can("role.manage"))}${it("⛺", "المخيمات", "go('camps')", can("camp.manage"))}
+   ${it("📜", "سجل التدقيق", "go('audit')", can("audit.view"))}${it("👤", "حسابي وكلمة المرور", "go('account')")}${it("🚪", "تسجيل الخروج", "logout()")}</div>`;
+  setBar(`<button class="btn sec" onclick="go('home')">رجوع</button>`);
+}
+
+/* ---------- users ---------- */
+function viewUsers() {
+  const rows = DB.users.filter(u => isAdmin() || canManageUser(u)).map(u => {
+    const cs = (u.camps || []).map(id => (DB.camps.find(c => c.id === id) || {}).name).filter(Boolean).join("، "), wa = u.wa || u.phone;
+    return `<div class="fam" style="cursor:default;align-items:flex-start"><div class="t"><b>${esc(u.name)} <span class="hint">@${esc(u.username)}</span></b><span>${esc(roleName(u.roleId))}${cs ? " • " + esc(cs) : ""}${(u.locs || []).length ? " • " + u.locs.length + " تجمع" : ""}</span>
+     <div class="row" style="margin-top:6px">${u.phone ? `<a class="btn sec small" href="tel:${esc(u.phone)}">📞 ${esc(u.phone)}</a>` : ""}${wa ? `<a class="btn sec small" target="_blank" href="https://wa.me/${intl(wa)}">💬 واتساب</a>` : ""}${u.email ? `<a class="btn sec small" href="mailto:${esc(u.email)}">✉ بريد</a>` : ""}</div></div>
+     <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">${u.active === false ? '<span class="badge b-e">موقوف</span>' : '<span class="badge b-ok">فعّال</span>'}${canManageUser(u) || (isAdmin()) ? `<button class="btn small sec" onclick="go('userform',{id:'${u.id}'})">تعديل</button>` : ""}</div></div>`;
+  }).join("");
+  $("#view").innerHTML = `<div class="card"><b>المستخدمون (${DB.users.length})</b><div class="hint">الجوال والواتساب والبريد للتواصل مع الموظفين. «حزمة الحسابات» تنقل الحسابات إلى أجهزة الباحثين بلا إنترنت.</div></div>${rows || '<div class="card hint">لا يوجد مستخدمون ضمن صلاحيتك.</div>'}`;
+  setBar(`<button class="btn gold" onclick="go('userform',{id:null})">＋ مستخدم</button><button class="btn sec" onclick="exportPack()">📦 حزمة الحسابات</button><button class="btn sec" onclick="go('menu')">رجوع</button>`);
+}
+function viewUserForm() {
+  const a = VIEW.arg || {}; let u = VIEW.du;
+  if (!u) { const ex = a.id ? DB.users.find(x => x.id === a.id) : null; u = VIEW.du = ex ? JSON.parse(JSON.stringify(ex)) : { id: null, name: "", username: "", roleId: "researcher", camps: myCamps().length === 1 ? [myCamps()[0].id] : [], locs: [], phone: "", wa: "", email: "", active: true, from: "", to: "" }; u.newPw = ""; }
+  if (a.id && !canManageUser(u) && !isAdmin()) return go("users");
+  const roles = assignableRoles(), campList = myCamps(), locSet = [...new Set(campList.filter(c => u.camps.includes(c.id)).flatMap(c => c.locs))].filter(c => isAdmin() || !(me().locs || []).length || me().locs.includes(c));
+  $("#view").innerHTML = `<div class="card"><b>${a.id ? "تعديل مستخدم" : "مستخدم جديد"}</b></div><div class="card"><div class="grid" id="uf">
+   ${fieldHtml("u_name", "الاسم الكامل", 'data-k="name"', u.name)}${fieldHtml("u_user", "اسم المستخدم (لاتيني)", `data-k="username" dir="ltr" autocapitalize="none" ${a.id ? "readonly" : ""}`, u.username, "text", "num")}
+   ${fieldHtml("u_pw", a.id ? "كلمة مرور جديدة (اتركها فارغة لعدم التغيير)" : "كلمة المرور (8 أحرف فأكثر)", 'data-k="newPw" autocomplete="new-password"', "", "password")}
+   <div><label>الدور</label><select data-k="roleId">${roles.map(r => `<option value="${r.id}"${r.id === u.roleId ? " selected" : ""}>${esc(r.name)}</option>`).join("")}</select></div>
+   ${fieldHtml("u_phone", "الجوال", 'data-k="phone" inputmode="tel"', u.phone, "text", "num")}${fieldHtml("u_wa", "واتساب (فارغ = نفس الجوال)", 'data-k="wa" inputmode="tel"', u.wa, "text", "num")}
+   <div class="full">${fieldHtml("u_mail", "البريد الإلكتروني", 'data-k="email" dir="ltr"', u.email, "email", "num")}</div>
+   <div class="full"><label>المخيمات المسموحة</label><div>${campList.map(c => `<label style="display:flex;gap:8px;align-items:center;margin:4px 0;color:var(--txt);font-size:15px"><input type="checkbox" style="width:22px;min-height:22px" data-camp="${c.id}"${u.camps.includes(c.id) ? " checked" : ""}> ${esc(c.name)}</label>`).join("") || '<span class="hint">أنشئ مخيماً أولاً</span>'}</div></div>
+   <div class="full"><label>التجمعات المسموحة (اتركها كلها بلا تحديد = كل تجمعات المخيم)</label><div style="max-height:170px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px">${locSet.map(c => `<label style="display:flex;gap:8px;align-items:center;margin:3px 0;color:var(--txt);font-size:15px"><input type="checkbox" style="width:22px;min-height:22px" data-loc="${c}"${u.locs.includes(c) ? " checked" : ""}> ${esc((L.loc[c] || {}).ar || c)} (${c})</label>`).join("") || '<span class="hint">اختر مخيماً</span>'}</div></div>
+   ${fieldHtml("u_from", "صالح من (dd/mm/yyyy — اختياري)", 'data-k="from" inputmode="numeric" placeholder="01/11/2026"', u.from, "text", "num")}${fieldHtml("u_to", "صالح حتى (اختياري)", 'data-k="to" inputmode="numeric" placeholder="31/12/2026"', u.to, "text", "num")}
+   <div class="full"><label style="display:flex;gap:8px;align-items:center;color:var(--txt);font-size:16px"><input type="checkbox" style="width:24px;min-height:24px" data-active${u.active !== false ? " checked" : ""}> الحساب فعّال</label></div></div></div><ul class="msgs sticky" id="u_msg"></ul>`;
+  const f = $("#uf"); f.addEventListener("input", onUserInput); f.addEventListener("change", onUserInput);
+  setBar(`<button class="btn" onclick="saveUser()">حفظ</button><button class="btn sec" onclick="VIEW.du=null;go('users')">إلغاء</button>`);
+}
+function onUserInput(e) {
+  const t = e.target, u = VIEW.du;
+  if (t.dataset.k) { u[t.dataset.k] = t.value; if (t.dataset.k === "roleId") { /* nothing */ } }
+  else if (t.dataset.camp !== undefined) { u.camps = t.checked ? [...new Set([...u.camps, t.dataset.camp])] : u.camps.filter(x => x !== t.dataset.camp); u.locs = []; const keep = VIEW.du; render(); VIEW.du = keep; }
+  else if (t.dataset.loc !== undefined) { u.locs = t.checked ? [...new Set([...u.locs, t.dataset.loc])] : u.locs.filter(x => x !== t.dataset.loc); }
+  else if (t.dataset.active !== undefined) u.active = t.checked;
+}
+async function saveUser() {
+  const u = VIEW.du, err = [], isNew = !u.id, un = (u.username || "").trim().toLowerCase();
+  if (!(u.name || "").trim()) err.push("الاسم مطلوب"); if (!/^[A-Za-z0-9._-]{3,}$/.test(un)) err.push("اسم المستخدم: 3 أحرف أو أرقام لاتينية فأكثر");
+  if (DB.users.some(x => x.username === un && x.id !== u.id)) err.push("اسم المستخدم مستخدم من قبل");
+  if (isNew && (u.newPw || "").length < 8) err.push("كلمة المرور أقل من 8 أحرف"); if (!isNew && u.newPw && u.newPw.length < 8) err.push("كلمة المرور الجديدة أقل من 8 أحرف");
+  if (u.phone && !phoneOK(u.phone)) err.push("الجوال: 9 أو 10 أرقام"); if (u.wa && !phoneOK(u.wa)) err.push("الواتساب: 9 أو 10 أرقام"); if (u.email && !emailOK(u.email)) err.push("البريد غير صحيح");
+  if (u.from && !parseDob(u.from)) err.push("تاريخ البداية غير صالح"); if (u.to && !parseDob(u.to)) err.push("تاريخ النهاية غير صالح");
+  if (u.roleId !== "admin" && !u.camps.length) err.push("اختر مخيماً واحداً على الأقل");
+  if (!assignableRoles().some(r => r.id === u.roleId)) err.push("ليست لديك صلاحية إسناد هذا الدور");
+  if (!isAdmin() && !u.camps.every(c => (me().camps || []).includes(c))) err.push("مخيم خارج نطاقك");
+  if (!locsWithin(u.locs)) err.push("حدّد تجمعات ضمن نطاقك فقط (لا يجوز منح أوسع مما تملك)");
+  if (u.id && u.id === me().id && u.active === false) err.push("لا يمكنك إيقاف حسابك");
+  if (err.length) { $("#u_msg").innerHTML = err.map(e => `<li class="e">❌ ${esc(e)}</li>`).join(""); return; }
+  const rec = { ...u, username: un, name: u.name.trim(), ua: Date.now() }; delete rec.newPw;
+  if (isNew) { rec.id = uid(); rec.ca = Date.now(); rec.pw = await hashPw(u.newPw); DB.users.push(rec); audit("user_create", un, roleName(rec.roleId)); }
+  else { const old = DB.users.find(x => x.id === u.id); rec.pw = u.newPw ? await hashPw(u.newPw) : old.pw; rec.rec = old.rec; Object.assign(old, rec); audit("user_edit", un, (u.newPw ? "كلمة مرور جديدة؛ " : "") + roleName(rec.roleId) + (rec.active === false ? "؛ موقوف" : "")); }
+  save(); VIEW.du = null; toast("تم الحفظ ✅"); go("users");
+}
+
+/* ---------- roles ---------- */
+function viewRoles() {
+  $("#view").innerHTML = `<div class="card"><b>الأدوار والصلاحيات</b><div class="hint">يمكنك بناء دور جديد بأي اسم وتحديد صلاحياته. دور «مدير نظام» ثابت.</div></div>` + DB.roles.map(r => `<div class="fam" onclick="go('roleform',{id:'${r.id}'})"><div class="t"><b>${esc(r.name)}</b><span>${r.perms.length} صلاحية • ${DB.users.filter(u => u.roleId === r.id).length} مستخدم</span></div>${r.system ? '<span class="badge b-w">ثابت</span>' : ""}</div>`).join("");
+  setBar(`<button class="btn gold" onclick="go('roleform',{id:null})">＋ دور جديد</button><button class="btn sec" onclick="go('menu')">رجوع</button>`);
+}
+function viewRoleForm() {
+  const a = VIEW.arg || {}; let r = VIEW.dr; if (!r) { const ex = a.id ? DB.roles.find(x => x.id === a.id) : null; r = VIEW.dr = ex ? JSON.parse(JSON.stringify(ex)) : { id: null, name: "", perms: ["person.create", "person.edit.own", "report.view"] }; }
+  const ro = !!r.system, groups = [...new Set(PERMS.map(p => p[2]))];
+  $("#view").innerHTML = `<div class="card"><b>${a.id ? "تعديل دور" : "دور جديد"}</b>${ro ? '<div class="hint">دور النظام الأساسي لا يُعدَّل.</div>' : ""}<div style="margin-top:8px"><label>اسم الدور</label><input id="rn" value="${esc(r.name)}" ${ro ? "readonly" : ""} oninput="VIEW.dr.name=this.value"></div></div>` +
+    groups.map(g => `<div class="card"><b>${g}</b>${PERMS.filter(p => p[2] === g).map(p => `<label style="display:flex;gap:10px;align-items:center;margin:8px 0;color:var(--txt);font-size:15px"><input type="checkbox" style="width:22px;min-height:22px" ${ro ? "disabled" : ""} ${r.perms.includes(p[0]) ? "checked" : ""} onchange="togglePerm('${p[0]}',this.checked)"> ${p[1]} <span class="hint num" style="margin-right:auto">${p[0]}</span></label>`).join("")}</div>`).join("") + `<ul class="msgs" id="r_msg"></ul>`;
+  setBar(ro ? `<button class="btn sec" onclick="VIEW.dr=null;go('roles')">رجوع</button>` : `<button class="btn" onclick="saveRole()">حفظ</button>${a.id ? '<button class="btn red" style="flex:0 0 auto" onclick="delRole()">حذف</button>' : ""}<button class="btn sec" onclick="VIEW.dr=null;go('roles')">إلغاء</button>`);
+}
+function togglePerm(k, on) { const r = VIEW.dr; r.perms = on ? [...new Set([...r.perms, k])] : r.perms.filter(x => x !== k); }
+function saveRole() {
+  const r = VIEW.dr; if (!(r.name || "").trim()) return toast("اسم الدور مطلوب"); if (DB.roles.some(x => x.name === r.name.trim() && x.id !== r.id)) return toast("اسم الدور مستخدم");
+  if (r.id) { Object.assign(DB.roles.find(x => x.id === r.id), { name: r.name.trim(), perms: r.perms }); audit("role_edit", r.name, r.perms.length + " صلاحية"); } else { DB.roles.push({ id: uid(), name: r.name.trim(), perms: r.perms }); audit("role_create", r.name, r.perms.length + " صلاحية"); }
+  save(); VIEW.dr = null; toast("تم الحفظ ✅"); go("roles");
+}
+function delRole() { const r = VIEW.dr; if (DB.users.some(u => u.roleId === r.id)) return toast("لا يمكن حذف دور له مستخدمون"); if (!confirm("حذف هذا الدور؟")) return; DB.roles = DB.roles.filter(x => x.id !== r.id); audit("role_delete", r.name, ""); save(); VIEW.dr = null; go("roles"); }
+
+/* ---------- camps ---------- */
+function viewCamps() {
+  $("#view").innerHTML = `<div class="card"><b>المخيمات</b><div class="hint">لكل مخيم محافظة وتجمع (أو أكثر) ثابتة تُملأ تلقائياً في النماذج.</div></div>` + DB.camps.map(c => `<div class="fam" onclick="go('campform',{id:'${c.id}'})"><div class="t"><b>${esc(c.name)}</b><span>${esc((L.gov[c.gov] || {}).ar || "")} • ${c.locs.map(x => esc((L.loc[x] || {}).ar || x)).join("، ")}</span></div><span class="badge b-ok">${live().filter(p => p.campId === c.id).length} فرد</span></div>`).join("");
+  setBar(`<button class="btn gold" onclick="go('campform',{id:null})">＋ مخيم</button><button class="btn sec" onclick="go('menu')">رجوع</button>`);
+}
+function viewCampForm() {
+  const a = VIEW.arg || {}; let c = VIEW.dc; if (!c) { const ex = a.id ? DB.camps.find(x => x.id === a.id) : null; c = VIEW.dc = ex ? JSON.parse(JSON.stringify(ex)) : { id: null, name: "", gov: DB.meta.defGov || "65", locs: [] }; }
+  const list = LK.loc.filter(x => x.c.startsWith(c.gov) || (c.gov === "40" && x.c.startsWith("41"))), q = (VIEW.lq || "").trim();
+  $("#view").innerHTML = `<div class="card"><b>${a.id ? "تعديل مخيم" : "مخيم جديد"}</b><div class="grid" style="margin-top:8px">${fieldHtml("c_name", "اسم المخيم", 'oninput="VIEW.dc.name=this.value"', c.name)}
+   <div><label>المحافظة</label><select onchange="VIEW.dc.gov=this.value;VIEW.dc.locs=[];render()">${opt(LK.gov, c.gov)}</select></div>
+   <div class="full"><label>التجمعات السكانية (اختر واحداً أو أكثر)</label><input placeholder="🔍 بحث" value="${esc(VIEW.lq || "")}" oninput="VIEW.lq=this.value;renderLocList()"><div id="loclist" style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px;margin-top:6px"></div></div></div></div><ul class="msgs" id="c_msg"></ul>`;
+  renderLocList(); setBar(`<button class="btn" onclick="saveCamp()">حفظ</button><button class="btn sec" onclick="VIEW.dc=null;go('camps')">إلغاء</button>`);
+}
+function renderLocList() {
+  const c = VIEW.dc, q = (VIEW.lq || "").trim(), list = LK.loc.filter(x => (x.c.startsWith(c.gov) || (c.gov === "40" && x.c.startsWith("41"))) && (!q || x.ar.includes(q) || x.c.includes(q)));
+  $("#loclist").innerHTML = list.map(x => `<label style="display:flex;gap:8px;align-items:center;margin:3px 0;color:var(--txt);font-size:15px"><input type="checkbox" style="width:22px;min-height:22px" ${c.locs.includes(x.c) ? "checked" : ""} onchange="togglLoc('${x.c}',this.checked)"> ${esc(x.ar)} (${x.c})</label>`).join("") || '<span class="hint">لا نتائج</span>';
+}
+function togglLoc(k, on) { const c = VIEW.dc; c.locs = on ? [...new Set([...c.locs, k])] : c.locs.filter(x => x !== k); }
+function saveCamp() {
+  const c = VIEW.dc, err = []; if (!(c.name || "").trim()) err.push("اسم المخيم مطلوب"); if (!L.gov[c.gov]) err.push("اختر المحافظة"); if (!c.locs.length) err.push("اختر تجمعاً واحداً على الأقل");
+  if (err.length) { $("#c_msg").innerHTML = err.map(e => `<li class="e">❌ ${esc(e)}</li>`).join(""); return; }
+  if (c.id) { Object.assign(DB.camps.find(x => x.id === c.id), { name: c.name.trim(), gov: c.gov, locs: c.locs }); audit("camp_edit", c.name, ""); } else { DB.camps.push({ id: uid(), name: c.name.trim(), gov: c.gov, locs: c.locs }); audit("camp_create", c.name, ""); }
+  save(); VIEW.dc = null; toast("تم الحفظ ✅"); go("camps");
+}
+
+/* ---------- audit, trash, account ---------- */
+function viewAudit() {
+  if (VIEW.arg && VIEW.arg.sens) VIEW.sens = true;
+  const bad = verifyAudit(), ext = (DB.auditExt || []).length;
+  $("#view").innerHTML = `<div class="card"><b>سجل التدقيق</b>
+   <div class="${bad < 0 ? "hint" : "banner"}" style="margin-top:6px">${bad < 0 ? "✅ سلامة السجل المحلي: لم يُعبث به (سلسلة تجزئة)" : "❌ تم التلاعب بالسجل المحلي عند الإدخال رقم " + (bad + 1)}${ext ? ` • ${ext} إدخال وارد من أجهزة أخرى` : ""}</div>
+   <div class="row" style="margin-top:8px"><input style="flex:1;min-width:180px" placeholder="🔍 بحث بالمستخدم أو الإجراء" value="${esc(VIEW.aq || "")}" oninput="VIEW.aq=this.value;viewAuditList()">
+   <label style="display:flex;gap:6px;align-items:center;color:var(--txt);font-size:15px"><input type="checkbox" style="width:22px;min-height:22px" ${VIEW.sens ? "checked" : ""} onchange="VIEW.sens=this.checked;viewAuditList()"> الحساس فقط</label></div></div><div class="card" id="alist"></div>`; viewAuditList();
+  setBar(`<button class="btn sec" onclick="go('menu')">رجوع</button>`);
+}
+function viewAuditList() {
+  const q = (VIEW.aq || "").trim(), rows = allAudit().filter(a => (!VIEW.sens || a.s) && (!q || ((a.un || "") + a.a + (a.g || "") + (a.d || "")).includes(q))).slice(0, 300), fmt = (t) => new Date(t).toLocaleString("en-GB", { hour12: false }).replace(",", "");
+  $("#alist").innerHTML = rows.length ? `<table class="t"><tr><th>الوقت</th><th>المستخدم</th><th>الإجراء</th><th>التفصيل</th></tr>${rows.map(a => `<tr${a.s ? ' style="background:#fff7e0"' : ""}><td class="num">${fmt(a.t)}</td><td class="num">${esc(a.un || "—")}${a.ext ? ' <span class="badge b-w">جهاز آخر</span>' : ""}</td><td>${esc(a.a)}</td><td>${esc((a.g || "") + (a.d ? " — " + a.d : ""))}</td></tr>`).join("")}</table>` : '<span class="hint">لا يوجد</span>';
+}
+function viewTrash() {
+  const rows = DB.people.filter(p => p.deleted && inScope(p) && (can("person.view.any") || p.cb === me().id));
+  $("#view").innerHTML = `<div class="card"><b>المحذوفات (${rows.length})</b><div class="hint">الحذف «ناعم»: السجل يبقى ويُمنع رجوعه عند الدمج. الاسترجاع بصلاحية خاصة.</div></div>` + rows.map(p => `<div class="fam" style="cursor:default"><div class="t"><b>${esc(fullName(p))}</b><span>${esc(p.id)} • حذفه ${esc((DB.users.find(u => u.id === p.deleted.by) || {}).name || "؟")} • «${esc(p.deleted.reason || "")}»</span></div>${can("person.restore") ? `<button class="btn small sec" onclick="restorePerson('${p.uid}')">استرجاع</button>` : ""}</div>`).join("");
+  setBar(`<button class="btn sec" onclick="go('menu')">رجوع</button>`);
+}
+function restorePerson(u) { const p = DB.people.find(x => x.uid === u); if (live().some(x => x.id === p.id)) return toast("يوجد سجل بنفس رقم الوثيقة، لا يمكن الاسترجاع"); p.deleted = null; p.ub = me().id; p.ua = Date.now(); audit("person_restore", p.id, fullName(p)); save(); toast("تم الاسترجاع ✅"); render(); }
+function viewAccount() {
+  $("#view").innerHTML = `<div class="card"><b>حسابي</b><div class="hint">${esc(me().name)} • @${esc(me().username)} • ${esc(roleName(me().roleId))}</div></div><div class="card"><b>تغيير كلمة المرور</b><div class="grid" style="margin-top:8px">
+   ${fieldHtml("a_old", "كلمة المرور الحالية", 'autocomplete="current-password"', "", "password")}${fieldHtml("a_new", "الجديدة (8 أحرف فأكثر)", 'autocomplete="new-password"', "", "password")}${fieldHtml("a_new2", "تأكيد الجديدة", "", "", "password")}</div><ul class="msgs" id="a_msg"></ul></div>`;
+  setBar(`<button class="btn" onclick="changePw()">تغيير</button><button class="btn sec" onclick="go('menu')">رجوع</button>`);
+}
+async function changePw() {
+  const m = (t) => { $("#a_msg").innerHTML = `<li class="e">❌ ${esc(t)}</li>`; }, u = me();
+  if (!(await checkPw($("#a_old").value || "", u.pw))) return m("كلمة المرور الحالية غير صحيحة"); if (($("#a_new").value || "").length < 8) return m("الجديدة أقل من 8 أحرف"); if ($("#a_new").value !== $("#a_new2").value) return m("التأكيد لا يطابق");
+  u.pw = await hashPw($("#a_new").value); u.ua = Date.now(); audit("password_change", u.username, ""); save(); toast("تم تغيير كلمة المرور ✅"); go("menu");
+}
+
+/* ---------- data entry screens ---------- */
+function viewHome(v) {
+  const fam = families(), mine = visible(), rep = can("report.view");
+  const err = mine.filter(p => status(v.get(p.uid) || []) === "E").length, warn = mine.filter(p => status(v.get(p.uid) || []) === "W").length;
+  const old = DB.meta.lastBackup ? Math.floor((Date.now() - DB.meta.lastBackup) / 3600000) : null;
+  $("#view").innerHTML = `
+  ${(() => { if (!can("audit.view") || !SESSION.prev) return ""; const n = allAudit().filter(e => e.s && e.t > SESSION.prev && e.u !== me().id); return n.length ? `<div class="banner" onclick="go('audit',{sens:true})" style="cursor:pointer">🔔 ${n.length} إجراء حساس من مستخدمين آخرين منذ آخر دخول لك (مثل إضافة موظف أو تصدير). اضغط للمراجعة.</div>` : ""; })()}
+  ${mine.length && can("backup.make") && (old === null || old > 24) ? `<div class="banner">⚠ ${old === null ? "لم تؤخذ نسخة احتياطية بعد" : "آخر نسخة احتياطية قبل " + old + " ساعة"} — خذ نسخة من «المزيد ← تصدير / نسخة احتياطية».</div>` : ""}
+  ${rep ? `<div class="stats"><div class="stat" style="background:#1f4e78"><b>${fam.length}</b><span>أسرة</span></div><div class="stat" style="background:#2e8b8b"><b>${mine.length}</b><span>فرد</span></div>
+    <div class="stat" style="background:${err ? "#c00000" : "#548235"}"><b>${err}</b><span>سجل فيه خطأ</span></div><div class="stat" style="background:${warn ? "#bf8f00" : "#548235"}"><b>${warn}</b><span>سجل فيه تنبيه</span></div></div>
+   <div class="card row sp"><div><b>${err ? "❌ يوجد " + err + " سجل فيه خطأ — صحّحه قبل التصدير" : mine.length ? "✅ لا توجد أخطاء" : "ابدأ بإضافة أسرة"}</b></div><button class="btn small sec" onclick="go('quality')">قائمة المشاكل</button></div>` : ""}
+  <div class="card"><input id="q" placeholder="🔍 بحث بالاسم أو رقم الهوية" value="${esc(VIEW.q || "")}" oninput="VIEW.q=this.value;viewHomeList()"></div><div id="flist"></div>`;
+  viewHomeList();
+  setBar(`${can("person.create") ? '<button class="btn gold" onclick="newFamily()">＋ أسرة جديدة</button>' : ""}<button class="btn sec" onclick="go('menu')">☰ المزيد</button>`);
+}
+function viewHomeList() {
+  const v = VCACHE || validateAll(), fam = families(), q = (VIEW.q || "").trim();
+  const list = fam.filter(f => !q || f.members.some(p => fullName(p).includes(q) || (p.id || "").includes(q)));
+  $("#flist").innerHTML = list.length ? list.map(f => { const s = famStatus(f, v); return `<div class="fam" onclick="go('family','${esc(f.key)}')"><div class="t"><b>${esc(fullName(f.head))}</b><span>${f.members.length} فرد • ${esc(f.head.id)}</span></div>${badge(s)}</div>`; }).join("") : `<div class="card hint">لا توجد أسر${q ? " مطابقة" : " بعد"}.</div>`;
+}
+function newFamily() { if (!can("person.create")) return toast("ليست لديك صلاحية الإضافة"); go("form", { uid: null, rel: "1" }); }
+function viewFamily(v) {
+  const f = families().find(x => x.key === VIEW.arg); if (!f) return go("home");
+  const rows = f.members.map(p => { const iss = v.get(p.uid) || [], a = ageOf(parseDob(p.dob)), by = (DB.users.find(u => u.id === p.cb) || {}).name;
+    return `<div class="mem" onclick="go('form',{uid:'${p.uid}'})"><div class="t"><b>${esc(fullName(p))}</b><br><small>${esc((L.relation[p.rel] || {}).ar || "؟")} • ${esc((L.gender[p.sex] || {}).ar || "؟")} • ${a ?? "؟"} سنة • ${esc(p.id)}${by ? " • أدخله " + esc(by) : ""}</small></div>${badge(status(iss))}</div>`; }).join("");
+  const canDelFam = f.members.every(canDelRec);
+  $("#view").innerHTML = `<div class="card"><b>${esc(fullName(f.head))}</b><div class="hint">رقم الأسرة: ${esc(f.key)} • ${f.members.length} فرد • ${esc((L.gov[f.head.gov] || {}).ar || "")} / ${esc((L.loc[f.head.loc] || {}).ar || "")}</div></div><div class="card">${rows}</div>
+  ${canDelFam ? `<div class="row"><button class="btn small red" onclick="delFamily('${esc(f.key)}')">حذف الأسرة</button></div>` : ""}`;
+  setBar(`${can("person.create") ? `<button class="btn gold" onclick="go('form',{uid:null,rel:'3',hid:'${esc(f.key)}'})">＋ إضافة فرد</button>` : ""}<button class="btn sec" onclick="go('home')">رجوع</button>`);
+}
+function softDelete(p, reason) { p.deleted = { by: me().id, at: Date.now(), reason }; p.ub = me().id; p.ua = Date.now(); audit("person_delete", p.id, fullName(p) + " — " + reason); }
+function delFamily(k) {
+  const ms = live().filter(p => (p.hid || p.id) === k && visible().includes(p)); if (!ms.every(canDelRec)) return toast("ليست لديك صلاحية حذف كل أفراد الأسرة");
+  const r = prompt("سبب حذف الأسرة كلها؟ (مطلوب)"); if (!r || !r.trim()) return toast("لم يُحذف: السبب مطلوب");
+  ms.forEach(p => softDelete(p, r.trim())); save(); toast("تم الحذف (يمكن استرجاعه من المحذوفات)"); go("home");
+}
+function opt(items, sel, lab) { return `<option value="">— اختر —</option>` + items.map(x => `<option value="${esc(x.c)}"${x.c === sel ? " selected" : ""}>${esc(lab ? lab(x) : x.ar)}</option>`).join(""); }
+function locOptions(gov, sel, only) { const g = gov || ""; const list = LK.loc.filter(x => (!only || only.includes(x.c)) && (!g || x.c.startsWith(g) || (g === "40" && x.c.startsWith("41")))); return opt(list, sel, x => x.ar + " (" + x.c + ")"); }
+const campOf = (p) => DB.camps.find(c => c.id === p.campId);
+function viewForm(v) {
+  const a = VIEW.arg || {}; let p;
+  if (VIEW.draft) p = VIEW.draft;
+  else if (a.uid) p = { ...DB.people.find(x => x.uid === a.uid) };
+  else {
+    const mc = myCamps(), headRec = a.hid ? live().find(x => x.hid === a.hid && x.rel === "1") : null, cid = headRec ? headRec.campId : (mc.length === 1 ? mc[0].id : "");
+    p = { uid: null, id: "", dt: "1", n1: "", n2: "", n3: "", n4: "", dob: "", sex: "", ms: a.rel === "3" ? "1" : "", ph: "", gov: "", loc: "", hid: a.hid || "", hdt: "1", rel: a.rel || "1", campId: cid };
+    const c = DB.camps.find(x => x.id === cid); if (c) { p.gov = c.gov; p.loc = c.locs.length === 1 ? c.locs[0] : ""; }
+    if (headRec) { p.gov = headRec.gov; p.loc = headRec.loc; p.hdt = headRec.hdt; p.n4 = headRec.n4; if (a.rel === "3") { p.n2 = headRec.n1; p.n3 = headRec.n2; } }
+  }
+  VIEW.draft = p; const isHead = p.rel === "1", camp = campOf(p), ro = !canEditRec(p), hidePhone = !can("phone.view");
+  const govItems = camp ? LK.gov.filter(x => x.c === camp.gov) : LK.gov, mc = myCamps();
+  const fld = (k, lab, inner, full) => `<div class="${full ? "full" : ""}"><label>${lab}</label>${inner}</div>`, dis = ro ? "disabled" : "";
+  const by = p.cb ? (DB.users.find(u => u.id === p.cb) || {}).name : "", ub = p.ub ? (DB.users.find(u => u.id === p.ub) || {}).name : "";
+  $("#view").innerHTML = `<div class="card"><b>${a.uid ? (ro ? "عرض فرد (للقراءة فقط)" : "تعديل فرد") : isHead ? "أسرة جديدة — رب الأسرة" : "إضافة فرد للأسرة"}</b>${ro && a.uid ? '<div class="hint">ليست لديك صلاحية تعديل هذا السجل (أدخله مستخدم آخر).</div>' : ""}${a.uid && p.ca ? `<div class="hint">أدخله: ${esc(by || "؟")} • ${new Date(p.ca).toLocaleDateString("en-GB")}${p.ua && p.ub ? " • آخر تعديل: " + esc(ub || "؟") + " " + new Date(p.ua).toLocaleDateString("en-GB") : ""}</div>` : ""}</div>
+  <div class="card"><div class="grid" id="frm">
+   ${!a.uid && !a.hid && mc.length > 1 ? fld("campId", "المخيم", `<select data-k="campId" ${dis}>${opt(mc.map(c => ({ c: c.id, ar: c.name })), p.campId)}</select>`, true) : ""}
+   ${fld("id", "رقم الوثيقة (9 أرقام)", `<input class="num" data-k="id" inputmode="numeric" maxlength="9" autocomplete="off" value="${esc(p.id)}" ${dis}>`)}
+   ${fld("dt", "نوع الوثيقة", `<select data-k="dt" ${dis}>${opt(LK.doc, p.dt)}</select>`)}
+   ${fld("n1", "الاسم الأول", `<input data-k="n1" value="${esc(p.n1)}" ${dis}>`)}${fld("n2", "اسم الأب", `<input data-k="n2" value="${esc(p.n2)}" ${dis}>`)}
+   ${fld("n3", "اسم الجد", `<input data-k="n3" value="${esc(p.n3)}" ${dis}>`)}${fld("n4", "اسم العائلة", `<input data-k="n4" value="${esc(p.n4)}" ${dis}>`)}
+   ${fld("dob", "تاريخ الميلاد (يوم/شهر/سنة)", `<input class="num" data-k="dob" inputmode="numeric" placeholder="06/04/1991" maxlength="10" value="${esc(p.dob)}" ${dis}>`)}
+   ${fld("sex", "الجنس", `<select data-k="sex" ${dis}>${opt(LK.gender, p.sex)}</select>`)}${fld("ms", "الحالة الاجتماعية", `<select data-k="ms" ${dis}>${opt(LK.marital, p.ms)}</select>`)}
+   ${fld("ph", "الجوال (اختياري)", hidePhone ? `<input value="•••• مخفي بحسب صلاحيتك" disabled>` : `<input class="num" data-k="ph" inputmode="tel" maxlength="10" placeholder="0595717751" value="${esc(p.ph)}" ${dis}>`)}
+   ${fld("gov", "المحافظة", `<select data-k="gov" ${dis}>${opt(govItems, p.gov)}</select>`)}
+   ${fld("loc", "التجمع السكاني", `<select data-k="loc" ${dis}>${locOptions(p.gov, p.loc, camp ? camp.locs : null)}</select>`)}
+   ${fld("rel", "صلة القرابة برب الأسرة", `<select data-k="rel" ${isHead && !a.uid ? "disabled" : dis}>${opt(LK.relation, p.rel)}</select>`)}
+   ${fld("hid", "رقم وثيقة رب الأسرة", `<input class="num" data-k="hid" inputmode="numeric" maxlength="9" ${isHead || ro ? "readonly" : ""} value="${esc(p.hid)}">`)}
+  </div></div><ul class="msgs sticky" id="msgs"></ul>`;
+  if (!ro) { const frm = $("#frm"); frm.addEventListener("input", onFormInput); frm.addEventListener("change", onFormInput); }
+  setBar(ro ? `<button class="btn sec" onclick="cancelForm()">رجوع</button>` : `<button class="btn" id="sv" onclick="saveForm()">حفظ</button><button class="btn sec" onclick="cancelForm()">إلغاء</button>${a.uid && canDelRec(p) ? '<button class="btn red" style="flex:0 0 auto" onclick="delPerson()">حذف</button>' : ""}`);
+  showIssues();
+}
+function onFormInput(e) {
+  const t = e.target, k = t.dataset.k, p = VIEW.draft; if (!k) return;
+  if (k === "dob") { let d = t.value.replace(/\D/g, "").slice(0, 8); if (d.length > 4) d = d.slice(0, 2) + "/" + d.slice(2, 4) + "/" + d.slice(4); else if (d.length > 2) d = d.slice(0, 2) + "/" + d.slice(2); t.value = d; }
+  if (k === "id" || k === "hid" || k === "ph") t.value = t.value.replace(/\D/g, "");
+  p[k] = t.value;
+  if (k === "campId") { const c = campOf(p); p.gov = c ? c.gov : ""; p.loc = c && c.locs.length === 1 ? c.locs[0] : ""; const keep = VIEW.draft, ar = VIEW.arg; render(); VIEW.draft = keep; return; }
+  if (k === "id" && p.rel === "1") { p.hid = p.id; $('[data-k="hid"]').value = p.id; }
+  if (k === "rel") { const h = $('[data-k="hid"]'); h.readOnly = p.rel === "1"; if (p.rel === "1") { p.hid = p.id; h.value = p.id; } }
+  if (k === "gov") { p.loc = ""; const c = campOf(p); $('[data-k="loc"]').innerHTML = locOptions(p.gov, "", c ? c.locs : null); }
+  showIssues();
+}
+function draftIssues() { const p = VIEW.draft, others = live().filter(x => x.uid !== p.uid), tmp = { ...p, uid: p.uid || "__new" }; return validate(tmp, buildCtx(others.concat([tmp]))); }
+function showIssues() {
+  const iss = draftIssues(); document.querySelectorAll("#frm [data-k]").forEach(el => el.classList.remove("bad", "warnf")); const p = VIEW.draft;
+  for (const i of iss) for (const f of i.f) { const el = $(`[data-k="${f}"]`); if (el && (p[f] || f === "name")) el.classList.add(i.s === "E" ? "bad" : "warnf"); }
+  const empty = ["id", "n1", "dob", "sex", "ms", "gov", "loc", "rel"].every(k => !p[k]);
+  $("#msgs").innerHTML = empty ? "" : iss.length ? iss.map(i => `<li class="${i.s === "E" ? "e" : "w"}">${i.s === "E" ? "❌" : "⚠"} ${esc(i.m)}</li>`).join("") : `<li class="g">✅ لا توجد ملاحظات</li>`;
+  const sv = $("#sv"); if (sv) sv.textContent = iss.some(i => i.s === "E") ? "حفظ (يوجد أخطاء)" : iss.length ? "حفظ (مع تنبيه)" : "حفظ";
+}
+function saveForm() {
+  const p = VIEW.draft, iss = draftIssues(); if (!canEditRec(p)) return toast("ليست لديك صلاحية");
+  if (!p.id && !p.n1) return toast("أدخل رقم الوثيقة والاسم أولاً"); if (!p.uid && !p.campId) return toast("اختر المخيم");
+  if (iss.some(i => i.s === "E") && !confirm("يوجد أخطاء في هذا السجل. هل تريد حفظه كمسودة وتصحيحه لاحقاً؟")) return;
+  if (!iss.some(i => i.s === "E") && iss.length && !confirm("يوجد تنبيه: " + iss.map(i => i.m).join(" | ") + "\nهل راجعت الوثيقة وتريد الحفظ؟")) return;
+  const rec = { ...p, id: p.id.trim(), hid: (p.rel === "1" ? p.id : p.hid).trim() }, now = Date.now();
+  if (rec.uid) { const i = DB.people.findIndex(x => x.uid === rec.uid), old = DB.people[i]; const ch = FIELDS.filter(k => (old[k] || "") !== (rec[k] || "")); if (!can("phone.view")) rec.ph = old.ph; rec.cb = old.cb; rec.ca = old.ca; rec.campId = old.campId; rec.dv = old.dv; rec.ub = me().id; rec.ua = now; DB.people[i] = rec; audit("person_edit", rec.id, ch.length ? "حقول: " + ch.join("،") : "بدون تغيير"); }
+  else { rec.uid = uid(); rec.cb = me().id; rec.ca = now; rec.dv = DB.deviceId; DB.people.push(rec); audit("person_create", rec.id, fullName(rec)); }
+  DB.meta.defGov = rec.gov || DB.meta.defGov; DB.meta.defLoc = rec.loc || DB.meta.defLoc; save();
+  VIEW = { name: "family", arg: rec.hid }; toast("تم الحفظ ✅"); render();
+}
+function cancelForm() { const p = VIEW.draft; VIEW = p && p.hid && live().some(x => x.hid === p.hid) ? { name: "family", arg: p.hid } : { name: "home" }; render(); }
+function delPerson() {
+  const p = VIEW.draft, rec = DB.people.find(x => x.uid === p.uid); if (!rec || !canDelRec(rec)) return toast("ليست لديك صلاحية الحذف");
+  const r = prompt("سبب الحذف؟ (مطلوب)"); if (!r || !r.trim()) return toast("لم يُحذف: السبب مطلوب");
+  softDelete(rec, r.trim()); save(); toast("تم الحذف (يمكن استرجاعه من المحذوفات)"); VIEW = live().some(x => x.hid === p.hid) ? { name: "family", arg: p.hid } : { name: "home" }; render();
+}
+function viewQuality(v) {
+  const rows = []; for (const p of visible()) for (const i of (v.get(p.uid) || [])) rows.push({ p, i }); rows.sort((a, b) => (a.i.s === "E" ? 0 : 1) - (b.i.s === "E" ? 0 : 1));
+  $("#view").innerHTML = `<div class="card"><b>قائمة المشاكل (${rows.length})</b><div class="hint">❌ خطأ يجب تصحيحه • ⚠ تنبيه راجعه مع الوثيقة. اضغط على السجل لفتحه.</div></div>` +
+    (rows.length ? `<div class="card">${rows.map(r => `<div class="mem" onclick="go('form',{uid:'${r.p.uid}'})"><div class="t"><b>${esc(fullName(r.p))}</b><br><small>${esc(r.p.id)}</small><div class="msgs"><li class="${r.i.s === "E" ? "e" : "w"}" style="list-style:none">${r.i.s === "E" ? "❌" : "⚠"} ${esc(r.i.m)}</li></div></div></div>`).join("")}</div>` : `<div class="card msgs"><li class="g" style="list-style:none">✅ لا توجد أي ملاحظة</li></div>`);
+  setBar(`<button class="btn sec" onclick="go('home')">رجوع</button>`);
+}
+function viewData(v) {
+  const mine = visible(), err = mine.filter(p => status(v.get(p.uid) || []) === "E").length, n = mine.length;
+  $("#view").innerHTML = `
+  ${can("export.sheet1") ? `<div class="card"><b>1) تصدير ملف Sheet1 (للجهة المانحة)</b><div class="hint">ملف Excel بنفس أعمدة الجهة المانحة والجداول المرجعية. ${n} فرد${can("person.view.any") ? "" : " (سجلاتك فقط)"}.${can("phone.view") ? "" : " أرقام الجوال تُترك فارغة بحسب صلاحيتك."}</div>
+    ${err ? `<div class="banner">❌ يوجد ${err} سجل فيه خطأ. صحّحها قبل التسليم.</div>` : ""}
+    <div class="row" style="margin-top:8px"><button class="btn" onclick="exportXlsx()">⬇ تنزيل Excel (Sheet1)</button>${canShareFiles() ? '<button class="btn gold" onclick="shareXlsx()">📤 مشاركة (واتساب / بريد)</button>' : ""}</div><div class="hint" style="margin-top:6px">يُقرأ الملف بعد إنشائه ويُقارَن بالبيانات قبل التسليم.</div></div>` : ""}
+  ${can("backup.make") ? `<div class="card"><b>2) نسخة احتياطية (JSON)</b><div class="hint">للسجلات فقط (بدون حسابات). آخر نسخة: ${DB.meta.lastBackup ? new Date(DB.meta.lastBackup).toLocaleString("ar") : "لم تؤخذ"}</div>
+    <div class="row" style="margin-top:8px"><button class="btn sec" onclick="exportJson()">⬇ نسخة احتياطية</button>${canShareFiles() ? '<button class="btn sec" onclick="shareJson()">📤 مشاركة النسخة</button>' : ""}</div></div>` : ""}
+  ${can("import.data") ? `<div class="card"><b>3) استيراد</b><div class="hint">من ملف Excel (Sheet1) أو نسخة JSON. «دمج» يضيف السجلات الجديدة فقط (حسب رقم الوثيقة) ولا يعيد المحذوف، و«استبدال» يمسح سجلاتك الحالية.</div>
+    <div class="row" style="margin-top:8px"><select id="mode" style="max-width:200px"><option value="merge">دمج</option>${isAdmin() ? '<option value="replace">استبدال</option>' : ""}</select><input id="file" type="file" accept=".xlsx,.json" style="max-width:360px"><button class="btn sec" onclick="doImport()">استيراد</button></div></div>` : ""}
+  ${isAdmin() ? `<div class="card"><b>حذف كل السجلات من هذا الجهاز</b><div class="row" style="margin-top:8px"><button class="btn red small" onclick="wipe()">حذف الكل</button></div></div>` : ""}
+  ${!can("export.sheet1") && !can("backup.make") && !can("import.data") ? '<div class="card hint">لا توجد عمليات بيانات ضمن صلاحيتك.</div>' : ""}`;
+  setBar(`<button class="btn sec" onclick="go('menu')">رجوع</button>`);
+}
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+async function makeExport() {
+  if (SESSION && !can("export.sheet1")) { toast("ليست لديك صلاحية التصدير"); return null; }
+  const v = validateAll(), mine = visible(), err = mine.filter(p => status(v.get(p.uid) || []) === "E").length;
+  if (err && !confirm("يوجد " + err + " سجل فيه خطأ. هل تريد التصدير رغم ذلك؟")) return null;
+  let reason = "", meta = null;
+  if (SESSION) {
+    if (!(await reauth(`لتصدير ${mine.length} فرد أدخل كلمة مرورك`))) return null;
+    reason = (prompt("سبب التصدير؟ (مطلوب — يُسجَّل في سجل التدقيق مع رقم الملف)") || "").trim(); if (!reason) { toast("لم يُصدَّر: السبب مطلوب"); return null; }
+    meta = { id: uid(), by: me().username, at: new Date().toISOString(), dv: DB.deviceId, n: mine.length };
+  }
+  const bytes = buildXlsx(mine, meta);
+  try { const back = await readXlsx(bytes), ids = new Set(mine.map(p => (p.id || "").trim())); if (back.length !== mine.length || !back.every(p => ids.has(p.id))) { alert("فشل التحقق من الملف المُصدَّر (" + back.length + " من " + mine.length + "). لا تعتمد هذا الملف."); return null; } }
+  catch (e) { alert("تعذّر التحقق من الملف المُصدَّر: " + e.message); return null; }
+  audit("export_xlsx", `${mine.length} فرد`, meta ? `رقم الملف ${meta.id} • السبب: ${reason}` : ""); return { bytes, name: `${who()}_${stamp()}.xlsx`, n: mine.length };
+}
+async function exportXlsx() { const r = await makeExport(); if (!r) return; dl(r.bytes, r.name, XLSX_MIME); toast(`تم التصدير والتحقق ✅ — ${r.n} فرد، ${Math.max(1, Math.round(r.bytes.length / 1024))} ك.ب`); }
+function canShareFiles() { try { return typeof navigator.canShare === "function" && navigator.canShare({ files: [new File([new Uint8Array(1)], "a.xlsx", { type: XLSX_MIME })] }); } catch (e) { return false; } }
+async function shareBytes(bytes, name, type) { try { await navigator.share({ files: [new File([bytes], name, { type })], title: name }); toast("تمت المشاركة ✅"); } catch (e) { if (e && e.name === "AbortError") return; dl(bytes, name, type); toast("تعذّرت المشاركة، تم التنزيل بدلاً منها"); } }
+async function shareXlsx() { const r = await makeExport(); if (r) await shareBytes(r.bytes, r.name, XLSX_MIME); }
+const backupBytes = () => U8(JSON.stringify({ v: 2, at: Date.now(), by: me() ? me().username : "", audit: DB.audit.slice(-3000), camps: DB.camps, people: visible().concat(DB.people.filter(p => p.deleted && inScope(p))) }, null, 1));
+async function shareJson() { if (!(await reauth("لإنشاء نسخة احتياطية أدخل كلمة مرورك"))) return; DB.meta.lastBackup = Date.now(); audit("backup", "", ""); save(); await shareBytes(backupBytes(), `backup_${who()}_${stamp()}.json`, "application/json"); }
+async function exportJson() { if (!(await reauth("لإنشاء نسخة احتياطية أدخل كلمة مرورك"))) return; DB.meta.lastBackup = Date.now(); audit("backup", "", ""); save(); dl(backupBytes(), `backup_${who()}_${stamp()}.json`, "application/json"); toast("تم حفظ النسخة الاحتياطية ✅"); }
+async function importBytes(bytes, name, mode) {
+  let people; const by = me() ? me().id : null, defCamp = myCamps().length === 1 ? myCamps()[0].id : (DB.camps[0] || {}).id;
+  if (/\.json$/i.test(name)) { const d = JSON.parse(new TextDecoder().decode(bytes)); if (d.type === "camp-package") throw new Error("هذا ملف حزمة حسابات؛ استورده من شاشة الدخول"); people = (d.people || []).map(p => ({ ...p, uid: p.uid || uid() })); if (d.audit) mergeExtAudit(d.audit, d.by); }
+  else people = (await readXlsx(bytes)).map(p => ({ ...p, src: name }));
+  for (const p of people) { p.campId = p.campId || defCamp; p.cb = p.cb || by; p.ca = p.ca || Date.now(); }
+  let added = 0, skipped = 0;
+  if (mode === "replace") { DB.people = people; added = people.length; }
+  else { const have = new Set(DB.people.map(p => p.id)); for (const p of people) { if (have.has(p.id)) skipped++; else { DB.people.push(p); have.add(p.id); added++; } } }
+  audit("import", name, `أُضيف ${added} • مُتجاوَز ${skipped}`); save(); return { added, skipped };
+}
+async function doImport() {
+  const f = $("#file").files[0]; if (!f) return toast("اختر ملفاً أولاً"); const mode = $("#mode").value;
+  if (mode === "replace" && DB.people.length && !confirm("سيُمسح كل ما على الجهاز ويُستبدل بمحتوى الملف. متابعة؟")) return;
+  try { const r = await importBytes(new Uint8Array(await f.arrayBuffer()), f.name, mode); toast(`تمت الإضافة: ${r.added} • تم تجاوز المكرر/المحذوف: ${r.skipped}`); go("home"); } catch (e) { toast("فشل الاستيراد: " + e.message); }
+}
+function wipe() { if (isAdmin() && confirm("حذف كل السجلات من هذا الجهاز؟ (خذ نسخة احتياطية أولاً)") && confirm("تأكيد أخير: الحذف نهائي")) { audit("wipe", `${DB.people.length} سجل`, ""); DB.people = []; save(); go("home"); } }
+
+/* ============================== start ============================== */
+["click", "keydown", "touchstart"].forEach(ev => document.addEventListener(ev, () => { lastAct = Date.now(); }, true));
+setInterval(() => { if (SESSION && Date.now() - lastAct > 15 * 60000) logout("تم تسجيل الخروج تلقائياً بعد 15 دقيقة خمول"); }, 30000);
+(async function init() {
+  await Store.open(); const s = await Store.get();
+  if (s && s.people) DB = { ...DB, ...s, meta: { ...DB.meta, ...(s.meta || {}) } };
+  DB.camps = DB.camps || []; DB.roles = DB.roles || []; DB.users = DB.users || []; DB.audit = DB.audit || []; DB.deviceId = DB.deviceId || uid();
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { }
+  if ("serviceWorker" in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(() => { });
+  VIEW = { name: "login" }; render();
+})();
+window.__app = { verifyAudit, audit, reauth, assignableRoles, locsWithin, makeExport, shareXlsx, canShareFiles, get DB() { return DB; }, set DB(v) { DB = v; }, get SESSION() { return SESSION; }, set SESSION(v) { SESSION = v; }, validateAll, buildXlsx, readXlsx, importBytes, validate, buildCtx, status, families, visible, luhnOK, parseDob, go, render, viewHome, save, hashPw, checkPw, pbkdf2, pbkdf2JS, can, importPackObj };
+
+</script>
+</body>
+</html>
