@@ -1,0 +1,8 @@
+# SHA-256 checksums — original project files
+
+Hashes below are calculated from the files extracted directly from the supplied ZIP.
+- `index.html`: `38a7ec5f9b2234d817927cadd574edfd34fd133ff0d30fd7ed64ac0b6d34c45a`
+- `sw.js`: `828a6c8b42a2c174cec183932716dd5ed10d85b3103dd97019dd561f2dd75cae`
+- `manifest.json`: `393badc389003a2b0ee278ceb08f0bc0a39114da0ece2e8510f16e80439a88e8`
+- `icon.svg`: `24c2a2b2facf1e56709f3fb5b74ea5d826057a2ed1278fe16a8b0b22af79d1dd`
+- `README_AR.md`: `449c7038db81e261c0fe1d6ee6ad1e51640e19ae39cc3599c63455d22c208543`
