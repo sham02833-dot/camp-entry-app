@@ -76,7 +76,7 @@ table.t{border-collapse:collapse;width:100%;font-size:14px}table.t td,table.t th
 </style>
 </head>
 <body>
-<header><div style="flex:1"><h1 id="ttl">إدخال بيانات الأسر</h1><div class="sub" id="sub"></div></div><span id="ss" class="ss"></span><button id="hb" onclick="go('home')">الرئيسية</button></header>
+<header><div style="flex:1"><h1 id="ttl">إدخال بيانات الأسر</h1><div class="sub" id="sub"></div></div><span id="net" class="ss" aria-live="polite"></span><span id="ss" class="ss"></span><button id="hb" onclick="go('home')">الرئيسية</button></header>
 <div id="gb"></div>
 <main id="view"></main>
 <div class="bar" id="bar"></div>
@@ -424,7 +424,8 @@ function sheetXml(rows, opts = {}) {   // rows: array of arrays; value types: st
   return x + "</sheetData></worksheet>";
 }
 function buildXlsx(people, meta) {
-  const fam = families(); const rows = [LK.headers.slice()], rowStyles = [1];   // a thick GOLD line under the last row of each family; the head row is bold only (no shading). 1 plain, 2 gold line, 3 bold, 4 bold + gold line
+  const keep = Array.isArray(people) ? new Set(people.map(p => p.uid)) : null;   // export only the people given (a chosen camp / locality / governorate); families are kept whole by the caller
+  const fam = families().map(f => keep ? { ...f, members: f.members.filter(p => keep.has(p.uid)) } : f).filter(f => f.members.length); const rows = [LK.headers.slice()], rowStyles = [1];   // a thick GOLD line under the last row of each family; the head row is bold only (no shading). 1 plain, 2 gold line, 3 bold, 4 bold + gold line
   for (const f of fam) f.members.forEach((p, i) => { const last = i === f.members.length - 1, head = p.rel === "1"; rowStyles.push(head ? (last ? 4 : 3) : (last ? 2 : 1)); });
   for (const f of fam) for (const p of f.members) rows.push(FIELDS.map(k => (k === "ph" && SESSION && !can("phone.view")) ? "" : (p[k] || "").toString().trim()));
   const lk = (arr, numeric) => [["Id", "ArName", "EnName"]].concat(arr.map(x => [numeric ? +x.c : x.c, x.ar, x.en]));
@@ -743,6 +744,7 @@ function render() {
   const v = validateAll();
   $("#ttl").textContent = SESSION ? appTitle() : (DB.meta.camp || "نظام إدخال بيانات الأسر");
   $("#sub").textContent = SESSION ? `${me().name} • ${roleName(me().roleId)} • يعمل بدون إنترنت` : "يعمل بدون إنترنت";
+  updateNet();
   $("#hb").style.display = SESSION ? "" : "none";
   if (!SESSION) return ({ setup: viewSetup, login: viewLogin, recover: viewRecover, recovery: viewRecoveryCode }[VIEW.name] || viewLogin)();
   ({ home: viewHome, family: viewFamily, form: viewForm, data: viewData, quality: viewQuality, menu: viewMenu, users: viewUsers, userform: viewUserForm, roles: viewRoles, roleform: viewRoleForm, camps: viewCamps, campform: viewCampForm, audit: viewAudit, trash: viewTrash, account: viewAccount, importpreview: viewImportPreview, brand: viewBrand, welcome: viewWelcome }[VIEW.name] || viewHome)(v);
@@ -1105,7 +1107,8 @@ function viewHome(v) {
   $("#view").innerHTML = `
   ${(() => { if (!can("audit.view") || !SESSION.prev) return ""; const n = allAudit().filter(e => e.s && e.t > SESSION.prev && e.u !== me().id); return n.length ? `<div class="banner" onclick="go('audit',{sens:true})" style="cursor:pointer">🔔 ${n.length} إجراء حساس من مستخدمين آخرين منذ آخر دخول لك (مثل إضافة موظف أو تصدير). اضغط للمراجعة.</div>` : ""; })()}
   ${DRAFT && DRAFT.u === me().id ? `<div class="draftbar">📝 لديك مسودة غير محفوظة (${esc(fullName(DRAFT.p) || DRAFT.p.id || "سجل جديد")}) من ${new Date(DRAFT.at).toLocaleString("ar")} <button class="btn small" onclick="resumeDraft()">استئناف</button> <button class="btn small sec" onclick="discardDraft()">تجاهل</button></div>` : ""}
-  ${(() => { if (!all.length || !can("backup.make")) return ""; const lb = DB.meta.lastBackup || 0, ch = visible().filter(p => (p.ua || p.ca || 0) > lb).length; if (lb && old <= 24 && ch < 20) return ""; return `<div class="banner">⚠ ${lb ? "آخر نسخة احتياطية قبل " + (old < 48 ? old + " ساعة" : Math.floor(old / 24) + " يوماً") : "لم تؤخذ نسخة احتياطية بعد"}${lb && ch ? " • " + ch + " سجل جديد/معدّل منذ ذلك الحين" : ""} — النسخة الاحتياطية خارج الجهاز هي الحماية الوحيدة من ضياع الجهاز أو مسح المتصفح. «المزيد ← تصدير / نسخة احتياطية».</div>`; })()}
+  ${installBanner()}
+  ${(() => { if (!all.length || !can("backup.make")) return ""; const lb = DB.meta.lastBackup || 0, ch = visible().filter(p => (p.ua || p.ca || 0) > lb).length; if (lb && old <= 24 && ch < 20) return ""; return `<div class="banner">⚠ ${lb ? "آخر نسخة احتياطية قبل " + (old < 48 ? old + " ساعة" : Math.floor(old / 24) + " يوماً") : "لم تؤخذ نسخة احتياطية بعد"}${lb && ch ? " • " + ch + " سجل جديد/معدّل منذ ذلك الحين" : ""} — النسخة الاحتياطية خارج الجهاز هي الحماية الوحيدة من ضياع الجهاز أو مسح المتصفح. «المزيد ← تصدير / نسخة احتياطية».${navigator.onLine ? " <b>أنت متصل بالإنترنت الآن — وقت مناسب لإرسالها.</b>" : ""}</div>`; })()}
   ${scopeBar(all)}
   ${rep ? `<div class="stats"><div class="stat" style="background:#1f4e78"><b>${fam.length}</b><span>أسرة</span></div><div class="stat" style="background:#2e8b8b"><b>${mine.length}</b><span>فرد</span></div>
     <div class="stat" style="background:${err ? "#c00000" : "#548235"}"><b>${err}</b><span>سجل فيه خطأ</span></div><div class="stat" style="background:${warn ? "#bf8f00" : "#548235"}"><b>${warn}</b><span>سجل فيه تنبيه</span></div></div>
@@ -1260,6 +1263,7 @@ function viewData(v) {
   <div class="card"><b>أين بياناتك الآن؟</b><div class="hint">• على <b>هذا الجهاز وهذا المتصفح فقط</b>${SAVE.persisted ? " (التخزين محميّ من المسح التلقائي)" : " (المتصفح قد يمسحه إذا امتلأ الجهاز؛ ثبّت التطبيق على الشاشة الرئيسية)"}.<br>• حالة الحفظ: ${SAVE.state === "saved" ? "محفوظ ✔ " + hhmm(SAVE.at) : esc(SAVE.state)} ${q && q.quota ? "• المستخدم " + Math.round(q.usage / 1048576 * 10) / 10 + " م.ب" : ""}<br>• <b>الحماية الحقيقية من ضياع الجهاز أو مسح المتصفح هي النسخة الاحتياطية خارج الجهاز</b> (واتساب/بريد/ذاكرة USB/Drive).<br>• آخر نسخة احتياطية: ${lb ? new Date(lb).toLocaleString("ar") + (bi ? " (" + bi.n + " سجل • بصمة " + esc(bi.sum.slice(0, 8)) + ")" : "") : "<b style='color:#c00000'>لم تؤخذ</b>"}</div></div>
   ${can("export.sheet1") ? `<div class="card"><b>1) تصدير ملف Sheet1 (للجهة المانحة)</b><div class="hint">ملف Excel بنفس أعمدة الجهة المانحة والجداول المرجعية. ${n} فرد${can("person.view.any") ? "" : " (سجلاتك فقط)"}.${can("phone.view") ? "" : " أرقام الجوال تُترك فارغة بحسب صلاحيتك."}</div>
     ${err ? `<div class="banner">❌ يوجد ${err} سجل فيه خطأ. صحّحها قبل التسليم.</div>` : ""}
+    <div class="row" style="margin-top:8px"><label style="flex:1">ماذا تريد أن تصدّر؟<select onchange="setExpSel(this.value)">${exportScopes().map(o => `<option value="${esc(o.v)}"${(VIEW.exp || "all") === o.v ? " selected" : ""}>${esc(o.t)}</option>`).join("")}</select></label></div>
     <div class="row" style="margin-top:8px"><button class="btn" onclick="exportXlsx()">⬇ تنزيل Excel (Sheet1)</button>${canShareFiles() ? '<button class="btn gold" onclick="shareXlsx()">📤 مشاركة (واتساب / بريد)</button>' : ""}</div><div class="hint" style="margin-top:6px">يُقرأ الملف بعد إنشائه ويُقارَن بالبيانات قبل التسليم.</div></div>` : ""}
   ${can("backup.make") ? `<div class="card"><b>2) نسخة احتياطية (JSON)</b><div class="hint">للسجلات ضمن نطاقك (بدون حسابات). تُفحص النسخة بعد إنشائها بإعادة قراءتها وبصمة سلامة SHA-256.</div>
     ${DB.meta.vaults ? `<label style="display:flex;gap:8px;align-items:center;color:var(--txt);font-size:15px;margin-top:6px"><input type="checkbox" id="benc" style="width:22px;min-height:22px" checked> تشفير النسخة بكلمة سر (موصى به — ملف Excel للجهة المانحة يبقى مفتوحاً كما تشترط)</label>` : ""}
@@ -1273,9 +1277,30 @@ function viewData(v) {
   setBar(`<button class="btn sec" onclick="go('menu')">رجوع</button>`);
 }
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+/* ---- export scope: what goes into the file is chosen explicitly (camp / locality / governorate / everything in my permission) ---- */
+const lkName = (k, c) => { const x = (L[k] || {})[c]; return x ? (x.ar || String(x)) : String(c || "—"); };
+function exportScopes() {
+  const all = visible(), by = (f) => { const m = new Map(); for (const p of all) { const k = f(p); if (k) m.set(k, (m.get(k) || 0) + 1); } return m; };
+  const out = [{ v: "all", t: `كل ما في صلاحيتي (${all.length} فرد)`, n: all.length }];
+  for (const [k, n] of by(p => p.campId)) { const c = DB.camps.find(x => x.id === k); out.push({ v: "c:" + k, t: `مخيم: ${c ? c.name : k} (${n})`, n }); }
+  for (const [k, n] of by(p => p.loc)) out.push({ v: "l:" + k, t: `تجمع: ${lkName("loc", k)} (${n})`, n });
+  for (const [k, n] of by(p => p.gov)) out.push({ v: "g:" + k, t: `محافظة: ${lkName("gov", k)} (${n})`, n });
+  return out;
+}
+function exportSet(sel) {
+  const all = visible(); if (!sel || sel === "all") return { rows: all, label: "الكل" };
+  const [t, k] = [sel[0], sel.slice(2)];
+  const f = t === "c" ? p => p.campId === k : t === "l" ? p => p.loc === k : p => p.gov === k;
+  const hit = new Set(all.filter(f).map(p => p.hid || p.uid)), rows = all.filter(p => hit.has(p.hid || p.uid)), c = t === "c" ? DB.camps.find(x => x.id === k) : null;
+  return { rows, label: t === "c" ? (c ? c.name : k) : t === "l" ? lkName("loc", k) : lkName("gov", k) };
+}
+function setExpSel(v) { VIEW.exp = v; render(); }
 async function makeExport() {
   if (SESSION && !can("export.sheet1")) { toast("ليست لديك صلاحية التصدير"); return null; }
-  const v = validateAll(), mine = visible(), err = mine.filter(p => status(v.get(p.uid) || []) === "E").length;
+  const XS = exportSet(VIEW && VIEW.exp), mine = XS.rows;
+  if (!mine.length) { toast("لا توجد سجلات ضمن النطاق المختار"); return null; }
+  if ((!VIEW || !VIEW.exp || VIEW.exp === "all") && new Set(mine.map(p => p.campId)).size > 1 && !(await uiConfirm("ستُدمج في ملف واحد أسر من " + new Set(mine.map(p => p.campId)).size + " مخيمات (لا يوجد عمود للمخيم في ملف الجهة المانحة). لملف لكل مخيم اختر المخيم من القائمة وصدّر كل مخيم على حدة.", { icon: "warning", title: "ملف يضم أكثر من مخيم", ok: "تصدير الكل في ملف واحد", cancel: "اختيار مخيم" }))) return null;
+  const v = validateAll(), err = mine.filter(p => status(v.get(p.uid) || []) === "E").length;
   if (err && !(await uiConfirm("يوجد " + err + " سجل فيه خطأ. صحّحها قبل التسليم للجهة المانحة.", { icon: "warning", title: "أخطاء قبل التصدير", ok: "تصدير رغم ذلك", cancel: "تصحيح أولاً" }))) return null;
   let reason = "", meta = null;
   if (SESSION) {
@@ -1286,7 +1311,7 @@ async function makeExport() {
   const bytes = buildXlsx(mine, meta);
   try { const back = await readXlsx(bytes), ids = new Set(mine.map(p => (p.id || "").trim())); if (back.length !== mine.length || !back.every(p => ids.has(p.id))) { alert("فشل التحقق من الملف المُصدَّر (" + back.length + " من " + mine.length + "). لا تعتمد هذا الملف."); return null; } }
   catch (e) { await uiAlert("تعذّر التحقق من الملف المُصدَّر: " + e.message, { icon: "error", title: "لم يُسلَّم الملف" }); return null; }
-  audit("export_xlsx", `${mine.length} فرد`, meta ? `رقم الملف ${meta.id} • السبب: ${reason}` : ""); return { bytes, name: `${who()}_${stamp()}.xlsx`, n: mine.length };
+  audit("export_xlsx", `${mine.length} فرد • النطاق: ${XS.label}`, meta ? `رقم الملف ${meta.id} • السبب: ${reason}` : ""); return { bytes, name: `${who()}_${XS.label.replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 30)}_${stamp()}.xlsx`, n: mine.length };
 }
 async function exportXlsx() { const r = await makeExport(); if (!r) return; dl(r.bytes, r.name, XLSX_MIME); toast(`تم التصدير والتحقق ✅ — ${r.n} فرد، ${Math.max(1, Math.round(r.bytes.length / 1024))} ك.ب`); }
 function canShareFiles() { try { return typeof navigator.canShare === "function" && navigator.canShare({ files: [new File([new Uint8Array(1)], "a.xlsx", { type: XLSX_MIME })] }); } catch (e) { return false; } }
@@ -1571,6 +1596,32 @@ async function startFresh() {
   try { history.replaceState({ k: 0 }, ""); history.pushState({ k: 1 }, ""); } catch (e) { }
   applyBrand(); VIEW = { name: "login" }; render(); showSave();
 })();
+/* ---- connectivity indicator, install prompt, "you are online: send a backup" reminder (no server: nothing is sent automatically) ---- */
+let INSTALL = { evt: null }, NETWAS = navigator.onLine;
+const isStandalone = () => (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+function installDismissed() { try { return localStorage.getItem("noInstallUntil") > String(Date.now()); } catch (e) { return false; } }
+function installBanner() {
+  if (isStandalone() || installDismissed()) return "";
+  if (INSTALL.evt) return `<div class="banner">📲 ثبّت التطبيق على الشاشة الرئيسية ليعمل بدون إنترنت وتبقى بياناتك محميّة من المسح. <button class="btn small" onclick="doInstall()">تثبيت</button> <button class="btn small" onclick="hideInstall()">لاحقاً</button></div>`;
+  if (isIOS()) return `<div class="banner">📲 للتثبيت على الآيفون: زر المشاركة ⬆ ثم «إضافة إلى الشاشة الرئيسية». <button class="btn small" onclick="hideInstall()">إخفاء</button></div>`;
+  return "";
+}
+async function doInstall() { const e = INSTALL.evt; if (!e) return; INSTALL.evt = null; try { e.prompt(); await e.userChoice; } catch (x) { } render(); }
+function hideInstall() { try { localStorage.setItem("noInstallUntil", String(Date.now() + 7 * 864e5)); } catch (e) { } INSTALL.evt = null; render(); }
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); INSTALL.evt = e; if (SESSION && VIEW && VIEW.name === "home") render(); });
+window.addEventListener("appinstalled", () => { INSTALL.evt = null; toast("تم تثبيت التطبيق ✅"); });
+function updateNet() {
+  const el = $("#net"); if (!el) return; const on = navigator.onLine;
+  el.textContent = on ? "🟢 متصل" : "🔴 بلا إنترنت"; el.title = on ? "يوجد اتصال بالإنترنت" : "تعمل بدون إنترنت؛ بياناتك تُحفظ على هذا الجهاز";
+  const was = NETWAS; NETWAS = on;
+  if (on && !was && SESSION && can("backup.make")) {
+    const lb = DB.meta.lastBackup || 0, ch = visible().filter(p => (p.ua || p.ca || 0) > lb).length;
+    if (ch) toast("🟢 عاد الاتصال — لديك " + ch + " سجل لم يُنسخ احتياطياً. أرسل نسخة احتياطية الآن (المزيد ← تصدير / نسخة احتياطية).");
+    if (VIEW && VIEW.name === "home") render();
+  }
+}
+window.addEventListener("online", updateNet); window.addEventListener("offline", updateNet);
 window.addEventListener("beforeunload", e => { saveDraft(); if (SAVE.dirty || SAVE.state === "saving" || SAVE.state === "error") { e.preventDefault(); e.returnValue = ""; } });
 window.addEventListener("pagehide", () => { saveDraft(); flush(); });
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") { saveDraft(); flush(); } });
