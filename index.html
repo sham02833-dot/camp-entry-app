@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#1f4e78">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg">
 <title>إدخال بيانات الأسر</title>
@@ -60,11 +61,23 @@ h2{font-size:17px;color:var(--navy);margin:14px 2px 4px}
 .mem:last-child{border:0}
 .mem .t{flex:1;min-width:0}.mem small{color:var(--mut)}
 .hint{font-size:13px;color:var(--mut)}
+.ss{font-size:12px;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,.15);white-space:nowrap}.ss.error,.ss.conflict{background:#c00000;font-weight:700}.ss:empty{display:none}
+.gbanner{padding:8px 14px;font-size:14px;border-bottom:1px solid #0002}.gbanner.bad{background:#c00000;color:#fff}.gbanner.warn{background:var(--warnbg);color:#6b4f00}.gbanner .btn{margin:2px 4px}
+.sw-bg{position:fixed;inset:0;background:rgba(15,30,50,.55);backdrop-filter:blur(2px);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;animation:swf .15s}
+.sw{background:#fff;border-radius:18px;max-width:380px;width:100%;padding:22px 18px 16px;text-align:center;box-shadow:0 14px 44px rgba(0,0,0,.32);animation:swp .18s}
+.sw .ic{width:64px;height:64px;border-radius:50%;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;border:4px solid}
+.sw .ic.warning{border-color:#f8bb86;color:#f0a030}.sw .ic.question{border-color:#9bb8c9;color:#5b8aa6}.sw .ic.success{border-color:#a5dc86;color:#43a047}.sw .ic.error{border-color:#f27474;color:#e04848}.sw .ic.info{border-color:#6ccdf0;color:#2a9fd0}
+.sw h3{margin:0 0 6px;font-size:19px;color:#2b3440}.sw .tx{font-size:15px;color:#52606d;white-space:pre-line;margin-bottom:12px}
+.sw input{margin-bottom:6px;text-align:center}.sw .bt{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px}.sw .bt .btn{min-width:112px}.sw .er{color:var(--err);font-size:13px;min-height:18px}
+@keyframes swp{from{transform:scale(.8);opacity:0}to{transform:scale(1);opacity:1}}@keyframes swf{from{opacity:0}to{opacity:1}}
+.toast.ok{background:#2e7d32}.toast.err{background:#c62828}.toast.warn{background:#a86400}
+.draftbar{background:#e8f1fb;border:1px solid #9ec3e8;border-radius:10px;padding:8px 12px;margin:10px 0;font-size:14px}
 table.t{border-collapse:collapse;width:100%;font-size:14px}table.t td,table.t th{border:1px solid var(--line);padding:4px 8px;text-align:right}table.t th{background:#e8eef6}
 </style>
 </head>
 <body>
-<header><div style="flex:1"><h1 id="ttl">إدخال بيانات الأسر</h1><div class="sub" id="sub"></div></div><button id="hb" onclick="go('home')">الرئيسية</button></header>
+<header><div style="flex:1"><h1 id="ttl">إدخال بيانات الأسر</h1><div class="sub" id="sub"></div></div><span id="ss" class="ss"></span><button id="hb" onclick="go('home')">الرئيسية</button></header>
+<div id="gb"></div>
 <main id="view"></main>
 <div class="bar" id="bar"></div>
 
@@ -81,33 +94,149 @@ const fullName = (p) => [p.n1, p.n2, p.n3, p.n4].map(x => (x || "").trim()).filt
 const uid = () => "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const today = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
 
-/* ============================== storage (IndexedDB, fallback localStorage) ============================== */
+/* ============================== storage (IndexedDB; verified writes, snapshots, no silent reset) ============================== */
+const APP_VERSION = "0.3.0", SCHEMA = 3;
+const SNAPS = ["snap0", "snap1", "snap2"];
+const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16); };
 const Store = {
-  db: null,
+  db: null, rev: null, legacy: false, lastSnap: 0, snapN: 0, openErr: null, vrev: {}, lastVSnap: {}, vsnapN: {},
   async open() {
-    if (!window.indexedDB) return;
-    this.db = await new Promise((res, rej) => {
-      const r = indexedDB.open("camp_entry", 1);
-      r.onupgradeneeded = () => r.result.createObjectStore("kv");
-      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-    }).catch(() => null);
-  },
-  async get() {
+    this.openErr = null; this.db = null;
+    if (!window.indexedDB) { this.openErr = "no-idb"; return; }
     try {
-      if (this.db) return await new Promise((res, rej) => { const q = this.db.transaction("kv").objectStore("kv").get("db"); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
-      const t = localStorage.getItem("camp_entry_db"); return t ? JSON.parse(t) : null;
-    } catch (e) { return null; }
+      this.db = await new Promise((res, rej) => {
+        const r = indexedDB.open("camp_entry", 1);
+        r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains("kv")) r.result.createObjectStore("kv"); };
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error || new Error("open")); r.onblocked = () => rej(new Error("blocked"));
+      });
+      this.db.onversionchange = () => { try { this.db.close(); } catch (e) { } this.db = null; };
+      this.db.onclose = () => { this.db = null; };
+    } catch (e) { this.openErr = String((e && e.name) || (e && e.message) || e); this.db = null; }
   },
-  async set(v) {
+  tx(mode, fn) {   // resolves only on tx.oncomplete = the data is really committed
+    return new Promise((res, rej) => {
+      let out; const t = this.db.transaction("kv", mode), os = t.objectStore("kv");
+      t.oncomplete = () => res(out); t.onerror = () => rej(t.error || new Error("tx")); t.onabort = () => rej(t.error || new Error("aborted"));
+      try { out = fn(os, t); } catch (e) { try { t.abort(); } catch (_) { } rej(e); }
+    });
+  },
+  getAux(key) { return this.tx("readonly", os => { const o = {}; const q = os.get(key); q.onsuccess = () => { o.v = q.result; }; return o; }).then(o => o.v); },
+  putAux(key, val) { return this.tx("readwrite", os => { os.put(val, key); }); },
+  delAux(key) { return this.tx("readwrite", os => { os.delete(key); }); },
+  decode(v) {
+    if (v == null) return { ok: false, why: "none" };
+    if (typeof v === "object" && v.fmt === 2 && typeof v.s === "string") {
+      if (fnv(v.s) !== v.crc) return { ok: false, why: "فشل فحص السلامة (checksum)", raw: v.s };
+      try { const d = JSON.parse(v.s); if (!d || !Array.isArray(d.people)) return { ok: false, why: "بنية غير متوقعة", raw: v.s }; return { ok: true, db: d, env: v }; } catch (e) { return { ok: false, why: "ملف غير قابل للقراءة (JSON)", raw: v.s }; }
+    }
+    if (typeof v === "object" && Array.isArray(v.people)) return { ok: true, db: v, env: null, legacy: true };
+    return { ok: false, why: "بنية غير معروفة" };
+  },
+  async load() {   // -> { status: empty | ok | recovered | failed, db, why, raw, from, at }
+    if (!this.db) {
+      if (this.openErr !== "no-idb") return { status: "failed", why: "تعذّر فتح قاعدة بيانات المتصفح (" + this.openErr + ")" };
+      try { const t = localStorage.getItem("camp_entry_db"); if (!t) return { status: "empty" }; const d = JSON.parse(t); if (d && Array.isArray(d.people)) { this.legacy = true; return { status: "ok", db: d, volatile: true }; } return { status: "failed", why: "بنية غير متوقعة", raw: t }; } catch (e) { return { status: "failed", why: "تعذّرت قراءة التخزين المحلي" }; }
+    }
+    let main; try { main = await this.getAux("db"); } catch (e) { return { status: "failed", why: "فشلت القراءة (" + ((e && e.name) || e) + ")" }; }
+    const d = this.decode(main);
+    if (d.ok) { this.rev = d.env ? d.env.rev : null; this.legacy = !!d.legacy; return { status: "ok", db: d.db }; }
+    let best = null; for (const k of SNAPS) { try { const x = this.decode(await this.getAux(k)); if (x.ok && (!best || x.env.at > best.env.at)) best = { ...x, key: k }; } catch (e) { } }
+    if (!best) { try { const x = this.decode(await this.getAux("snap_legacy")); if (x.ok) best = { ...x, env: { at: 0, rev: null }, key: "snap_legacy" }; } catch (e) { } }
+    if (main == null && !best) { try { const t = localStorage.getItem("camp_entry_db"); if (t) { const dd = JSON.parse(t); if (dd && Array.isArray(dd.people)) { this.legacy = true; this.rev = null; return { status: "ok", db: dd, fromLocal: true }; } } } catch (e) { } return { status: "empty" }; }
+    if (best) { this.rev = main && main.rev || null; this.legacy = !!(main && !main.fmt); return { status: "recovered", db: best.db, from: best.key, at: best.env.at, why: d.why, raw: main && main.s || null }; }
+    return { status: "failed", why: d.why, raw: d.raw || null };
+  },
+  async decVault(env, uid, key) {   // AES-GCM: wrong key and any tampering/corruption both fail authentication
+    try { if (!env || env.fmt !== 4) return { ok: false, why: "بنية غير معروفة" }; const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: env.iv, additionalData: U8("vault|" + uid) }, key, env.c); return { ok: true, priv: JSON.parse(new TextDecoder().decode(pt)), env }; }
+    catch (e) { return { ok: false, why: "فشل فك التشفير أو فحص السلامة (مفتاح خاطئ أو بيانات تالفة)" }; }
+  },
+  async loadVault(uid, key) {   // -> { status: empty | ok | recovered | failed, priv, from, at, why }
+    let raw; try { raw = await this.getAux("vault_" + uid); } catch (e) { return { status: "failed", why: "فشلت قراءة الخزنة (" + ((e && e.name) || e) + ")" }; }
+    if (raw != null) { const d = await this.decVault(raw, uid, key); if (d.ok) { this.vrev[uid] = raw.rev; return { status: "ok", priv: d.priv }; } }
+    let best = null; for (let i = 0; i < 3; i++) { try { const e = await this.getAux("vsnap_" + uid + "_" + i); if (e) { const x = await this.decVault(e, uid, key); if (x.ok && (!best || e.at > best.at)) best = { priv: x.priv, at: e.at, key: "vsnap_" + uid + "_" + i }; } } catch (e) { } }
+    if (best) { this.vrev[uid] = raw && raw.rev || null; return { status: "recovered", priv: best.priv, from: best.key, at: best.at, why: raw ? "الخزنة الأخيرة تالفة" : "الخزنة مفقودة" }; }
+    if (raw == null) { this.vrev[uid] = null; return { status: "empty" }; }
+    return { status: "failed", why: "لا يمكن فتح الخزنة بهذا المفتاح، ولا توجد لقطة سليمة" };
+  },
+  async set(db, opts = {}) {
+    const vm = !!(db.meta && db.meta.vaults), vault = vm ? opts.vault : null;
+    const body = vm ? pubOf(db) : db, s = JSON.stringify(body), now = Date.now(), rev = now.toString(36) + Math.random().toString(36).slice(2, 8);
+    if (!this.db) { if (vm) throw new Error("التشفير يحتاج IndexedDB"); localStorage.setItem("camp_entry_db", s); return; }
+    const env = { fmt: 2, at: now, rev, n: body.people.length, crc: fnv(s), s }, snap = !!opts.snap || now - this.lastSnap > 5 * 60000;
+    let envV = null, vsnap = false, vuid = vault && vault.uid;
+    if (vault) { const priv = JSON.stringify(privOf(db)), iv = crypto.getRandomValues(new Uint8Array(12)); const c = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: U8("vault|" + vuid) }, vault.key, U8(priv))); envV = { fmt: 4, at: now, rev: "v" + rev, n: db.people.length, iv, c }; vsnap = !!opts.snap || now - (this.lastVSnap[vuid] || 0) > 5 * 60000; }
+    let conflict = false;
     try {
-      if (this.db) return await new Promise((res, rej) => { const q = this.db.transaction("kv", "readwrite").objectStore("kv").put(v, "db"); q.onsuccess = res; q.onerror = () => rej(q.error); });
-      localStorage.setItem("camp_entry_db", JSON.stringify(v));
-    } catch (e) { toast("تعذّر الحفظ على الجهاز! نزّل نسخة احتياطية الآن"); }
+      await this.tx("readwrite", (os, t) => {
+        const g = os.get("db"), gv = envV ? os.get("vault_" + vuid) : null;
+        let waiting = envV ? 2 : 1; const go = () => { if (--waiting) return;
+          const cur = g.result, curV = gv && gv.result;
+          if (cur && !(this.legacy && !cur.fmt) && cur.rev !== this.rev) { conflict = true; t.abort(); return; }
+          if (envV && curV && curV.rev !== this.vrev[vuid]) { conflict = true; t.abort(); return; }
+          if (cur && !cur.fmt) os.put(cur, "snap_legacy");
+          os.put(env, "db"); if (snap) os.put(env, SNAPS[this.snapN % SNAPS.length]);
+          if (envV) { os.put(envV, "vault_" + vuid); if (vsnap) os.put(envV, "vsnap_" + vuid + "_" + ((this.vsnapN[vuid] || 0) % 3)); } };
+        g.onsuccess = go; if (gv) gv.onsuccess = go;
+      });
+    } catch (e) { if (conflict) { const c = new Error("conflict"); c.name = "ConflictError"; throw c; } throw e; }
+    this.rev = rev; this.legacy = false; if (snap) { this.lastSnap = now; this.snapN++; } if (envV) { this.vrev[vuid] = envV.rev; if (vsnap) { this.lastVSnap[vuid] = now; this.vsnapN[vuid] = (this.vsnapN[vuid] || 0) + 1; } }
   }
 };
-let DB = { meta: { camp: "", lastBackup: 0, defGov: "", defLoc: "", cc: "970" }, people: [], camps: [], roles: [], users: [], audit: [], deviceId: "" };
-let saveT = null;
-const save = () => { clearTimeout(saveT); saveT = setTimeout(() => Store.set(DB), 150); };
+let DB = { schema: SCHEMA, meta: { camp: "", lastBackup: 0, defGov: "", defLoc: "", cc: "970" }, people: [], camps: [], roles: [], users: [], audit: [], imports: [], deviceId: "" };
+const SAVE = { state: "idle", dirty: false, blocked: false, at: 0, err: "", note: "", volatile: false, quota: null, persisted: null };
+/* ---- per-user encrypted vault: records, audit trail, notes and import history live in AES-GCM ciphertext; accounts/roles/camps stay readable (they are what login needs) ---- */
+const PMETA = ["lastBackup", "lastBackupInfo", "defGov", "defLoc"];
+let VAULT = null;   // { uid, key: CryptoKey (AES-GCM, not extractable), okek: CryptoKey|null (administrators only) }
+function privOf(db) { const pm = {}; for (const k of PMETA) if (db.meta && db.meta[k] !== undefined) pm[k] = db.meta[k]; return { people: db.people, audit: db.audit || [], auditExt: db.auditExt || [], auditBase: db.auditBase || "", imports: db.imports || [], pm }; }
+function pubOf(db) { const { people, audit, auditExt, auditBase, imports, ...rest } = db; const meta = { ...(db.meta || {}) }; for (const k of PMETA) delete meta[k]; return { ...rest, meta, people: [], audit: [], auditExt: [], imports: [] }; }
+const snapStr = () => DB.meta.vaults ? JSON.stringify({ priv: privOf(DB) }) : JSON.stringify(DB);
+function mergePriv(p) { DB.people = p.people || []; DB.audit = p.audit || []; DB.auditExt = p.auditExt || []; DB.auditBase = p.auditBase || ""; DB.imports = p.imports || []; for (const k of PMETA) if (p.pm && p.pm[k] !== undefined) DB.meta[k] = p.pm[k]; DBV++; }
+function lockVault() { if (!DB.meta.vaults) return; DB.people = []; DB.audit = []; DB.auditExt = []; DB.auditBase = ""; DB.imports = []; for (const k of PMETA) delete DB.meta[k]; VAULT = null; DBV++; }
+const rnd = (n) => crypto.getRandomValues(new Uint8Array(n));
+const aesKey = (raw) => crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+async function sealObj(obj, tag) { if (!(DB.meta.vaults && VAULT)) return obj; const iv = rnd(12); return { fmt: 5, iv, c: new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: U8("aux|" + VAULT.uid + "|" + tag) }, VAULT.key, U8(JSON.stringify(obj)))) }; }
+async function openObj(v, tag) { if (!v || v.fmt !== 5) return v; if (!VAULT) return null; try { return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: v.iv, additionalData: U8("aux|" + VAULT.uid + "|" + tag) }, VAULT.key, v.c))); } catch (e) { return null; } }
+const PLAIN_KEYS = ["snap0", "snap1", "snap2", "snap_legacy", "snap_premigrate", "pre_import", "pre_rollback", "corrupt_last", "draft"];
+let saveT = null, maxT = null, chain = Promise.resolve(true), retryT = null;
+const hhmm = (t) => { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+const saveErrText = (e) => { const n = (e && e.name) || "", m = (e && e.message) || ""; if (n === "QuotaExceededError" || /quota/i.test(m)) return "مساحة التخزين على الجهاز ممتلئة"; if (n === "InvalidStateError") return "التخزين غير متاح الآن (قد تكون في وضع التصفح الخاص)"; return "خطأ في التخزين" + (n ? " (" + n + ")" : ""); };
+let DBV = 0;   // data version: caches (validation, indexes, family list) are rebuilt only when it changes
+function save() { DBV++; if (SAVE.blocked) return; SAVE.dirty = true; if (SAVE.state !== "error") SAVE.state = "dirty"; showSave(); clearTimeout(saveT); saveT = setTimeout(() => flush(), 300); if (!maxT) maxT = setTimeout(() => flush(), 2500); }
+function flush(opts) { clearTimeout(saveT); clearTimeout(maxT); saveT = maxT = null; chain = chain.then(() => doFlush(opts || {})); return chain; }
+async function doFlush(opts) {
+  if (SAVE.blocked) return false;
+  if (!SAVE.dirty && !opts.force) return SAVE.state !== "error";
+  if (DB.meta.vaults && SESSION && !VAULT) { SAVE.state = "error"; SAVE.err = "الخزنة المشفّرة مغلقة؛ سجّل الدخول من جديد"; showSave(); return false; }
+  SAVE.dirty = false; SAVE.state = "saving"; showSave();
+  try {
+    const o2 = { ...opts, vault: VAULT }; try { await Store.set(DB, o2); } catch (e) { if (e && e.name === "InvalidStateError" && window.indexedDB) { await Store.open(); await Store.set(DB, o2); } else throw e; }
+    SAVE.state = SAVE.dirty ? "dirty" : "saved"; SAVE.at = Date.now(); SAVE.err = ""; clearTimeout(retryT); showSave(); return true;
+  } catch (e) {
+    if (e && e.name === "ConflictError") { SAVE.blocked = true; SAVE.state = "conflict"; showSave(); return false; }
+    SAVE.dirty = true; SAVE.state = "error"; SAVE.err = saveErrText(e); showSave(); clearTimeout(retryT); retryT = setTimeout(() => flush(), 15000); return false;
+  }
+}
+async function commit(okMsg) { const ok = await flush(); if (ok) { if (okMsg) toast(okMsg); } else if (!SAVE.blocked) toast("❌ لم يُحفظ على الجهاز: " + SAVE.err); return ok; }
+function showSave() {
+  const c = $("#ss"), g = $("#gb"); if (!c || !g) return; const t = SAVE.state;
+  c.className = "ss " + t; c.textContent = t === "saved" ? "✔ محفوظ " + hhmm(SAVE.at) : t === "saving" || t === "dirty" ? "… جارٍ الحفظ" : t === "error" ? "❌ لم يُحفظ" : t === "conflict" ? "⛔ متوقف" : SAVE.blocked ? "⛔ متوقف" : "";
+  const q = SAVE.quota && SAVE.quota.quota ? SAVE.quota.used / SAVE.quota.quota : 0;
+  let h = "";
+  if (t === "error") h += `<div class="gbanner bad">❌ تعذّر الحفظ على الجهاز: ${esc(SAVE.err)}. <b>لا تغلق الصفحة.</b> يعاد المحاولة تلقائياً. <button class="btn small" onclick="flush()">إعادة المحاولة الآن</button> <button class="btn small sec" onclick="emergencyBackup()">⬇ نزّل نسخة طوارئ</button></div>`;
+  if (t === "conflict") h += `<div class="gbanner bad">⛔ تغيّرت بيانات الجهاز من نافذة أخرى للتطبيق، فأوقفنا الحفظ لئلا تُمسح تلك التعديلات. <button class="btn small sec" onclick="emergencyBackup()">⬇ نزّل نسخة من هذه النافذة</button> <button class="btn small" onclick="location.reload()">إعادة التحميل</button></div>`;
+  if (SAVE.volatile) h += `<div class="gbanner warn">⚠ هذا المتصفح لا يدعم التخزين الآمن؛ البيانات قد تضيع. خذ نسخاً احتياطية باستمرار.</div>`;
+  if (q > 0.8 && t !== "error") h += `<div class="gbanner warn">⚠ مساحة التخزين شبه ممتلئة (${Math.round(q * 100)}%). صدّر نسخة احتياطية وفرّغ مساحة قبل المتابعة.</div>`;
+  if (SAVE.update) h += `<div class="gbanner warn">🔄 يتوفر إصدار جديد من التطبيق. تُحفظ بياناتك ومسودتك تلقائياً قبل التحديث. <button class="btn small" onclick="applyUpdate()">تحديث الآن</button></div>`;
+  if (SAVE.note) h += `<div class="gbanner warn">${SAVE.note} <button class="btn small sec" onclick="SAVE.note='';showSave()">إخفاء</button></div>`;
+  g.innerHTML = h;
+}
+async function applyUpdate() { if (!SAVE.update) return; saveDraft(); if (SAVE.dirty && !(await flush())) return toast("تعذّر الحفظ؛ لم يُحدَّث التطبيق"); SAVE.updating = true; SAVE.update.postMessage({ type: "SKIP_WAITING" }); }
+function emergencyBackup() { try { dl(U8(JSON.stringify(DB)), `emergency_${who()}_${stamp()}.json`, "application/json"); toast("نُزّلت نسخة طوارئ كاملة (تحوي الحسابات) — احفظها في مكان آمن"); } catch (e) { toast("تعذّر إنشاء النسخة: " + e.message); } }
+async function storageInfo() {
+  try { if (navigator.storage && navigator.storage.estimate) SAVE.quota = await navigator.storage.estimate(); } catch (e) { }
+  try { if (navigator.storage && navigator.storage.persisted) SAVE.persisted = await navigator.storage.persisted(); } catch (e) { }
+  showSave();
+}
 
 /* ============================== validation (mirror of the 30 Excel/tool rules) ============================== */
 const MSG = {
@@ -122,16 +251,15 @@ const MSG = {
   w_sameSex: "الزوج/ة من نفس جنس رب الأسرة", w_spMs: "الزوج/ة حالته الاجتماعية ليست متزوج", w_headMs: "لرب الأسرة زوج/ة في الكشف وحالته ليست متزوج",
   w_msAge: "حالة اجتماعية غير منطقية للعمر (أقل من 16 سنة)", w_head16: "رب الأسرة أقل من 16 سنة", w_105: "العمر أكبر من 105 سنة",
   w_locGov: "التجمع السكاني لا يتبع المحافظة", w_dupNd: "اسم وتاريخ ميلاد مكرران (شخص مكرر؟)",
-  w_headSingle: "رب الأسرة «أعزب» وفي أسرته أبناء أو أحفاد أو زوجة ابن", w_dil: "زوجة ابن متزوجة ولا يوجد ابن متزوج في الأسرة",
+  w_headPh: "رب الأسرة بلا رقم جوال", w_headSingle: "رب الأسرة «أعزب» وفي أسرته أبناء أو أحفاد أو زوجة ابن", w_dil: "زوجة ابن متزوجة ولا يوجد ابن متزوج في الأسرة",
   w_gcNoParent: "حفيد بلا أب أو أم ظاهرين في الأسرة (يتيم؟ راجع)", w_spCount: "عدد الأزواج/الزوجات في الأسرة غير منطقي", w_gap30: "فارق العمر مع رب الأسرة أكبر من 30 سنة (راجع تاريخ الميلاد)"
 };
-function parseDob(s) {            // strict dd/mm/yyyy, real calendar date
-  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((s || "").trim());
-  if (!m) return null;
-  const d = +m[1], mo = +m[2], y = +m[3];
-  if (y < 1900) return null;
-  const dt = new Date(y, mo - 1, d);
-  return (dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d) ? dt : null;
+const DOBC = new Map();
+function parseDob(s) {            // strict dd/mm/yyyy, real calendar date (memoised: the same strings are parsed many times per validation pass)
+  s = (s || "").trim(); if (DOBC.has(s)) return DOBC.get(s);
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s); let r = null;
+  if (m) { const d = +m[1], mo = +m[2], y = +m[3]; if (y >= 1900) { const dt = new Date(y, mo - 1, d); if (dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d) r = dt; } }
+  if (DOBC.size > 60000) DOBC.clear(); DOBC.set(s, r); return r;
 }
 function ageOf(dt) {
   if (!dt) return null; const t = today(); if (dt > t) return null;
@@ -203,25 +331,46 @@ function validate(p, ctx) {       // -> [{s:'E'|'W', m:text, f:[field names]}]
   if (p.rel === "7" && (fm.kid15 + fm.r8) === 0) W(MSG.w_gcNoParent, ["rel"]);
   if (p.rel === "1" && L.gender[p.sex] && (p.sex === "1" ? fm.r2 > 4 : fm.r2 > 1)) W(MSG.w_spCount, ["rel"]);
   if (p.rel === "2" && num(age) && num(hAge) && Math.abs(age - hAge) > 30) W(MSG.w_gap30, ["dob"]);
+  { const hp = ((DB.meta.rules || {}).headPhone) || "warn"; if (hp !== "off" && p.rel === "1" && !ph) (hp === "error" ? E : W)(MSG.w_headPh, ["ph"]); }
   return out;
 }
-let VCACHE = null;
+let VCACHE = null, VC = { v: -1, res: null };
 function validateAll() {
+  if (VC.v === DBV && VC.res) { VCACHE = VC.res; return VC.res; }
   const lv = live(), ctx = buildCtx(lv), res = new Map();
   for (const p of lv) res.set(p.uid, validate(p, ctx));
-  VCACHE = res; return res;
+  VC = { v: DBV, res }; VCACHE = res; return res;
+}
+/* Arabic-aware text for SEARCH AND DUPLICATE MATCHING only (stored names are never changed) */
+const AR_DIG = { "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4", "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9", "۰": "0", "۱": "1", "۲": "2", "۳": "3", "۴": "4", "۵": "5", "۶": "6", "۷": "7", "۸": "8", "۹": "9" };
+const nrm = (s) => String(s ?? "").normalize("NFKC").replace(/[\u064B-\u065F\u0670\u0640\u200B-\u200F\u202A-\u202E]/g, "").replace(/[أإآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/[ؤ]/g, "و").replace(/[ئ]/g, "ي").replace(/[٠-٩۰-۹]/g, d => AR_DIG[d]).replace(/\s+/g, " ").trim().toLowerCase();
+const push = (m, k, v) => { if (!k) return; const a = m.get(k); if (a) a.push(v); else m.set(k, [v]); };
+let IXC = { v: -1, ix: null };
+function IX() {
+  if (IXC.v === DBV && IXC.ix) return IXC.ix;
+  const ix = { byId: new Map(), byHid: new Map(), nd: new Map(), byDob: new Map() };
+  for (const p of DB.people) { if (p.deleted) continue; push(ix.byId, (p.id || "").trim(), p); push(ix.byHid, (p.hid || "").trim(), p); const fn = fullName(p), d = (p.dob || "").trim(); if (fn && d) { push(ix.nd, fn + "|" + p.dob, p); push(ix.byDob, d, p); } }
+  IXC = { v: DBV, ix }; return ix;
 }
 const status = (iss) => iss.some(i => i.s === "E") ? "E" : iss.length ? "W" : "OK";
 const badge = (s) => s === "E" ? '<span class="badge b-e">❌ خطأ</span>' : s === "W" ? '<span class="badge b-w">⚠ تنبيه</span>' : '<span class="badge b-ok">✅</span>';
 
 /* ============================== families ============================== */
+let FC = { k: "", v: null };
 function families() {
+  const k = DBV + "|" + (SESSION ? SESSION.uid + (can("phone.view") ? "p" : "") : ""); if (FC.k === k && FC.v) return FC.v;
   const m = new Map();
-  for (const p of visible()) { const k = (p.hid || p.id || p.uid).trim(); if (!m.has(k)) m.set(k, []); m.get(k).push(p); }
-  return [...m.entries()].map(([k, arr]) => {
+  for (const p of visible()) { const key = (p.hid || p.id || p.uid).trim(); if (!m.has(key)) m.set(key, []); m.get(key).push(p); }
+  const out = [...m.entries()].map(([key, arr]) => {
     arr.sort((a, b) => (+a.rel || 99) - (+b.rel || 99));
-    return { key: k, head: arr.find(p => p.rel === "1") || arr[0], members: arr };
+    const head = arr.find(p => p.rel === "1") || arr[0];
+    return { key, head, members: arr, txt: null, t: Math.max(...arr.map(p => p.ua || p.ca || 0)) };
   });
+  out.sort((a, b) => b.t - a.t); FC = { k, v: out }; return out;
+}
+function famText(f) {   // search text built on first use (normalised once per family)
+  if (f.txt == null) { const ph = can("phone.view"), c = campOf(f.head); f.txt = nrm(f.members.map(p => fullName(p) + " " + (p.id || "") + (ph ? " " + (p.ph || "") : "")).join(" ") + " " + (c ? c.name : "") + " " + ((L.loc[f.head.loc] || {}).ar || "") + " " + ((L.gov[f.head.gov] || {}).ar || "")); }
+  return f.txt;
 }
 function famStatus(f, v) { const ss = f.members.map(p => status(v.get(p.uid) || [])); return ss.includes("E") ? "E" : ss.includes("W") ? "W" : "OK"; }
 
@@ -268,18 +417,19 @@ function sheetXml(rows, opts = {}) {   // rows: array of arrays; value types: st
     r.forEach((v, ci) => {
       if (v === "" || v == null) return; const ref = colL(ci) + (ri + 1);
       if (typeof v === "number") x += `<c r="${ref}"><v>${v}</v></c>`;
-      else x += `<c r="${ref}" t="inlineStr"${opts.text ? ' s="1"' : ""}><is><t xml:space="preserve">${xe(v)}</t></is></c>`;
+      else x += `<c r="${ref}" t="inlineStr"${opts.text ? ' s="' + ((opts.rowStyles && opts.rowStyles[ri]) || 1) + '"' : ""}><is><t xml:space="preserve">${xe(v)}</t></is></c>`;
     });
     x += "</row>";
   });
   return x + "</sheetData></worksheet>";
 }
 function buildXlsx(people, meta) {
-  const fam = families(); const rows = [LK.headers.slice()];
+  const fam = families(); const rows = [LK.headers.slice()], rowStyles = [1];   // a thick GOLD line under the last row of each family; the head row is bold only (no shading). 1 plain, 2 gold line, 3 bold, 4 bold + gold line
+  for (const f of fam) f.members.forEach((p, i) => { const last = i === f.members.length - 1, head = p.rel === "1"; rowStyles.push(head ? (last ? 4 : 3) : (last ? 2 : 1)); });
   for (const f of fam) for (const p of f.members) rows.push(FIELDS.map(k => (k === "ph" && SESSION && !can("phone.view")) ? "" : (p[k] || "").toString().trim()));
   const lk = (arr, numeric) => [["Id", "ArName", "EnName"]].concat(arr.map(x => [numeric ? +x.c : x.c, x.ar, x.en]));
   const sheets = [
-    ["Sheet1", sheetXml(rows, { text: true, widths: [15, 13, 14, 14, 14, 14, 15, 11, 13, 15, 12, 14, 17, 14, 14], freeze: true })],
+    ["Sheet1", sheetXml(rows, { text: true, widths: [15, 13, 14, 14, 14, 14, 15, 11, 13, 15, 12, 14, 17, 14, 14], freeze: true, rowStyles })],
     [LK.sheetNames.doc, sheetXml(lk(LK.doc, true))], [LK.sheetNames.gender, sheetXml(lk(LK.gender, true))], [LK.sheetNames.marital, sheetXml(lk(LK.marital, true))],
     [LK.sheetNames.gov, sheetXml([["Code", "ArName", "EnName"]].concat(LK.gov.map(x => [x.c, x.ar, x.en])), { text: true })],
     [LK.sheetNames.loc, sheetXml([["Code", "ArName", "EnName"]].concat(LK.loc.map(x => [x.c, x.ar, x.en])), { text: true })],
@@ -290,7 +440,7 @@ function buildXlsx(people, meta) {
   files.push({ name: "_rels/.rels", data: U8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>') });
   files.push({ name: "xl/workbook.xml", data: U8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + sheets.map((s, i) => `<sheet name="${xe(s[0]).replace(/"/g, "&quot;")}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("") + "</sheets></workbook>") });
   files.push({ name: "xl/_rels/workbook.xml.rels", data: U8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("") + `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`) });
-  files.push({ name: "xl/styles.xml", data: U8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="49" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>') });
+  files.push({ name: "xl/styles.xml", data: U8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thick"><color rgb="FFFFC000"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="49" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="49" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="49" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/><xf numFmtId="49" fontId="1" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>') });
   sheets.forEach((s, i) => files.push({ name: `xl/worksheets/sheet${i + 1}.xml`, data: U8(s[1]) }));
   if (meta) {     // traceability: who exported, when, from which device (document properties; does not touch Sheet1)
     const dec = (n) => new TextDecoder().decode(files.find(f => f.name === n).data), put = (n, t) => { files.find(f => f.name === n).data = U8(t); };
@@ -331,7 +481,13 @@ async function readXlsx(bytes) {  // -> array of person objects from the first s
     }
     rows.push(row);
   }
-  const cols = "ABCDEFGHIJKLMNO".split(""), out = [];
+  const cols = "ABCDEFGHIJKLMNO".split(""), out = [], hdr = rows[0] || {}, warn = [];
+  const hn = (v) => String(v == null ? "" : (typeof v === "object" ? v.__num : v)).trim().toLowerCase(), want = (LK.headers || []).map(hn);
+  const hit = cols.filter((c, i) => hn(hdr[c]) === want[i]).length;
+  if (want.length && hit < 10) throw new Error("أعمدة الملف لا تطابق قالب Sheet1 (تطابق " + hit + " من 15 عموداً). استخدم القالب الرسمي.");
+  if (want.length && hit < 15) warn.push("⚠ بعض عناوين الأعمدة تختلف عن القالب: " + cols.filter((c, i) => hn(hdr[c]) !== want[i]).join("، ") + " — راجع ترتيب الأعمدة.");
+  out.warn = warn;
+  if (rows.length > 100001) throw new Error("عدد الصفوف كبير جداً (أكثر من 100 ألف)");
   for (const row of rows.slice(1)) {
     const g = (c) => { const v = row[c]; return v == null ? "" : (typeof v === "object" ? String(v.__num) : String(v)).trim(); };
     if (!g("A") && !g("C")) continue;
@@ -388,10 +544,31 @@ const b64 = (u) => btoa(String.fromCharCode(...u)), unb64 = (s) => Uint8Array.fr
 async function hashPw(pw, rec) { const salt = rec && rec.s ? unb64(rec.s) : crypto.getRandomValues(new Uint8Array(16)), iter = rec && rec.i ? rec.i : 100000; return { s: b64(salt), i: iter, h: b64(await pbkdf2(pw, salt, iter)) }; }
 const checkPw = async (pw, rec) => rec && (await hashPw(pw, rec)).h === rec.h;
 
+/* ---- organisation key: signs account packages so devices only trust packages from THEIR system administrator ---- */
+const subtleOK = () => !!(window.crypto && crypto.subtle && !window.__noSubtle);
+const ECP = { name: "ECDSA", namedCurve: "P-256" }, ECS = { name: "ECDSA", hash: "SHA-256" };
+async function wrapKey(bytes, secret) { const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12)), it = 150000; const k = await crypto.subtle.importKey("raw", await pbkdf2(secret, salt, it), "AES-GCM", false, ["encrypt"]); return { s: b64(salt), i: it, iv: b64(iv), c: b64(new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, bytes))) }; }
+async function unwrapKey(w, secret) { const k = await crypto.subtle.importKey("raw", await pbkdf2(secret, unb64(w.s), w.i), "AES-GCM", false, ["decrypt"]); return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(w.iv) }, k, unb64(w.c))); }
+const orgFp = async (pub) => (await sha256hex(unb64(pub))).slice(0, 16).toUpperCase();
+const fmtFp = (fp) => fp.replace(/(.{4})(?=.)/g, "$1-");
+const orgCode = (fp) => fmtFp(fp.slice(0, 12));
+async function genOrg(pw, code) {
+  const kp = await crypto.subtle.generateKey(ECP, true, ["sign", "verify"]);
+  const pub = b64(new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey))), pk8 = new Uint8Array(await crypto.subtle.exportKey("pkcs8", kp.privateKey));
+  return { pub, fp: await orgFp(pub), sk: await wrapKey(pk8, pw), sk2: await wrapKey(pk8, code) };
+}
+async function signBody(body, pk8) { const key = await crypto.subtle.importKey("pkcs8", pk8, ECP, false, ["sign"]); return b64(new Uint8Array(await crypto.subtle.sign(ECS, key, U8(JSON.stringify(body))))); }
+async function verifyBody(body, sig, pub) { const key = await crypto.subtle.importKey("raw", unb64(pub), ECP, false, ["verify"]); return crypto.subtle.verify(ECS, key, unb64(sig), U8(JSON.stringify(body))); }
+const PWWEAK = ["12345678", "123456789", "1234567890", "password", "passw0rd", "qwertyui", "11111111", "00000000", "abcd1234", "iloveyou", "12341234", "87654321"];
+function pwWeak(pw, un) {
+  pw = pw || ""; if (pw.length < 8) return "كلمة المرور أقل من 8 أحرف"; if (/^(.)\1+$/.test(pw)) return "كلمة المرور حرف مكرر"; if (PWWEAK.includes(pw.toLowerCase())) return "كلمة المرور شائعة جداً";
+  if (un && un.length >= 3 && pw.toLowerCase().includes(un.toLowerCase())) return "كلمة المرور تحتوي اسم المستخدم"; if (/^\d+$/.test(pw)) return "كلمة المرور أرقام فقط؛ أضف أحرفاً"; return "";
+}
+
 /* ============================== permissions, roles, scope ============================== */
 const PERMS = [
   ["camp.manage", "إدارة المخيمات", "النظام"], ["user.manage", "إدارة المستخدمين", "النظام"], ["role.manage", "بناء الأدوار وتعديل صلاحياتها", "النظام"], ["audit.view", "عرض سجل التدقيق", "النظام"],
-  ["person.create", "إضافة أسر وأفراد", "الإدخال"], ["person.view.any", "رؤية سجلات الآخرين (ضمن النطاق)", "الإدخال"], ["person.edit.own", "تعديل سجلاته", "الإدخال"], ["person.edit.any", "تعديل سجلات غيره", "الإدخال"],
+  ["person.create", "إضافة أسر وأفراد", "الإدخال"], ["note.add", "إضافة ملاحظات على السجلات", "الإدخال"], ["note.view.others", "رؤية ملاحظات الآخرين", "الإدخال"], ["person.view.any", "رؤية سجلات الآخرين (ضمن النطاق)", "الإدخال"], ["person.edit.own", "تعديل سجلاته", "الإدخال"], ["person.edit.any", "تعديل سجلات غيره", "الإدخال"],
   ["person.delete.own", "حذف سجلاته", "الإدخال"], ["person.delete.any", "حذف سجلات غيره", "الإدخال"], ["person.restore", "استرجاع المحذوفات", "الإدخال"],
   ["report.view", "العدّادات وقائمة المشاكل", "التقارير والبيانات"], ["export.sheet1", "تصدير Excel (Sheet1)", "التقارير والبيانات"], ["import.data", "استيراد ودمج ملفات", "التقارير والبيانات"], ["backup.make", "نسخة احتياطية", "التقارير والبيانات"],
   ["phone.view", "رؤية أرقام الجوال", "بيانات حساسة"]
@@ -399,10 +576,10 @@ const PERMS = [
 const ALLP = PERMS.map(p => p[0]);
 const DEFAULT_ROLES = () => [
   { id: "admin", name: "مدير نظام", system: true, perms: ALLP.slice() },
-  { id: "manager", name: "مسؤول", perms: ["user.manage", "audit.view", "person.create", "person.view.any", "person.edit.own", "person.edit.any", "person.delete.own", "person.delete.any", "person.restore", "report.view", "export.sheet1", "import.data", "backup.make", "phone.view"] },
-  { id: "supervisor", name: "مشرف", perms: ["audit.view", "person.create", "person.view.any", "person.edit.own", "person.edit.any", "person.delete.own", "person.delete.any", "person.restore", "report.view", "export.sheet1", "import.data", "backup.make", "phone.view"] },
-  { id: "researcher", name: "باحث", perms: ["person.create", "person.edit.own", "person.delete.own", "report.view", "export.sheet1", "backup.make", "phone.view"] },
-  { id: "reviewer", name: "مراجع", perms: ["person.view.any", "audit.view", "report.view", "export.sheet1", "phone.view"] }
+  { id: "manager", name: "مسؤول", perms: ["user.manage", "audit.view", "note.add", "note.view.others", "person.create", "person.view.any", "person.edit.own", "person.edit.any", "person.delete.own", "person.delete.any", "person.restore", "report.view", "export.sheet1", "import.data", "backup.make", "phone.view"] },
+  { id: "supervisor", name: "مشرف", perms: ["audit.view", "note.add", "note.view.others", "person.create", "person.view.any", "person.edit.own", "person.edit.any", "person.delete.own", "person.delete.any", "person.restore", "report.view", "export.sheet1", "import.data", "backup.make", "phone.view"] },
+  { id: "researcher", name: "باحث", perms: ["note.add", "person.create", "person.edit.own", "person.delete.own", "report.view", "export.sheet1", "backup.make", "phone.view"] },
+  { id: "reviewer", name: "مراجع", perms: ["note.view.others", "person.view.any", "audit.view", "report.view", "export.sheet1", "phone.view"] }
 ];
 let SESSION = null, lastAct = Date.now();
 const me = () => SESSION ? DB.users.find(u => u.id === SESSION.uid) : null;
@@ -413,22 +590,87 @@ const myCamps = () => !SESSION ? DB.camps : isAdmin() ? DB.camps : DB.camps.filt
 const live = () => DB.people.filter(p => !p.deleted);
 const inScope = (p) => { if (!SESSION || isAdmin()) return true; const u = me(); if (p.cb === u.id) return true; return (u.camps || []).includes(p.campId) && (!(u.locs || []).length || u.locs.includes(p.loc)); };
 const visible = () => live().filter(p => !SESSION || (inScope(p) && (can("person.view.any") || p.cb === me().id)));
+const canSee = (p) => !!p && !p.deleted && (!SESSION || (inScope(p) && (can("person.view.any") || p.cb === (me() || {}).id)));
 const canEditRec = (p) => !p.uid ? can("person.create") : (p.cb && me() && p.cb === me().id ? can("person.edit.own") : can("person.edit.any"));
 const canDelRec = (p) => (p.cb && me() && p.cb === me().id) ? can("person.delete.own") : can("person.delete.any");
 const roleName = (id) => (DB.roles.find(r => r.id === id) || {}).name || "؟";
 const assignableRoles = () => isAdmin() ? DB.roles : DB.roles.filter(r => r.id !== "admin" && !r.perms.some(k => ["user.manage", "role.manage", "camp.manage"].includes(k)) && r.perms.every(k => myRole().perms.includes(k)));   // never grant what you do not have yourself
 const locsWithin = (locs) => isAdmin() || !(me().locs || []).length || ((locs || []).length > 0 && locs.every(l => me().locs.includes(l)));
 function canManageUser(t) { if (isAdmin()) return true; if (!can("user.manage") || !t) return false; if (t.id === me().id) return false; return assignableRoles().some(r => r.id === t.roleId) && (t.camps || []).every(c => (me().camps || []).includes(c)) && locsWithin(t.locs); }
+/* ---- vault keys: every user has a random data key (DEK) wrapped by HIS password; administrators also hold an escrow key (OKEK) that can re-wrap any DEK they created ---- */
+const bigb64 = (u) => { let s = ""; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+async function makeRing(pw, code) { const dek = rnd(32), okek = rnd(32), ring = U8(JSON.stringify({ d: b64(dek), o: b64(okek) })); return { kr: await wrapKey(ring, pw), kr2: await wrapKey(ring, code) }; }
+async function openRing(w, secret) { const r = JSON.parse(new TextDecoder().decode(await unwrapKey(w, secret))); return { dek: unb64(r.d), okek: unb64(r.o) }; }
+async function sealDek(okekKey, dek) { const iv = rnd(12); return { iv: b64(iv), c: b64(new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, okekKey, dek))) }; }
+async function openDek(okekKey, ve) { return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(ve.iv) }, okekKey, unb64(ve.c))); }
+async function unlockVault(u, pw) {   // -> { ok, err?, vaultFailed?, note? }
+  if (!(DB.meta.vaults || DB.meta.vaultsPending)) return { ok: true };
+  if (!subtleOK()) return { ok: false, err: "هذا المتصفح لا يدعم التشفير؛ افتح التطبيق من ملف محلي أو رابط https" };
+  if (VAULT && VAULT.uid !== u.id) { await flush(); lockVault(); }
+  let dek, okek = null;
+  try { if (u.kr) { const r = await openRing(u.kr, pw); dek = r.dek; okek = await aesKey(r.okek); } else if (u.vk) dek = await unwrapKey(u.vk, pw); else { dek = rnd(32); u.vk = await wrapKey(dek, pw); u.vkv = 1; } }
+  catch (e) { return { ok: false, err: "تعذّر فتح مفتاح الخزنة بكلمة المرور هذه. إن أُعيد تعيين كلمة مرورك فاستورد حزمة الحسابات الأحدث من المدير." }; }
+  const key = await aesKey(dek), pending = !DB.meta.vaults;
+  if (pending) {   // first vault on this device: plaintext data still in memory moves into it; plaintext copies are removed only after the encrypted copy is read back and compared
+    const n0 = DB.people.length; VAULT = { uid: u.id, key, okek }; DB.meta.vaults = true; delete DB.meta.vaultsPending; Store.vrev[u.id] = null; SAVE.dirty = true;
+    const ok = await flush({ snap: true, force: true }); let good = false;
+    if (ok) { const r = await Store.loadVault(u.id, key); good = r.status === "ok" && r.priv.people.length === n0; }
+    if (!good) { VAULT = null; DB.meta.vaults = false; DB.meta.vaultsPending = true; SAVE.dirty = true; return { ok: false, err: "تعذّر إنشاء الخزنة المشفّرة والتحقق منها؛ لم يتغير شيء من بياناتك" }; }
+    if (Store.db) for (const k of PLAIN_KEYS) await Store.delAux(k).catch(() => { });
+    return { ok: true, note: n0 ? "نُقلت بيانات هذا الجهاز (" + n0 + " سجل) إلى خزنة مشفّرة" : "" };
+  }
+  const r = await Store.loadVault(u.id, key);
+  if (r.status === "failed") return { ok: false, err: "تعذّر فتح الخزنة المشفّرة: " + r.why, vaultFailed: true };
+  VAULT = { uid: u.id, key, okek };
+  if (r.status === "empty") mergePriv({}); else mergePriv(r.priv);
+  if (r.status === "recovered") { SAVE.note = "⚠ تعذّرت قراءة آخر نسخة من خزنتك (" + esc(r.why) + ") فاستُعيدت لقطة من " + new Date(r.at).toLocaleString("ar") + ". قد تضيع التعديلات التي تلتها."; SAVE.dirty = true; flush({ snap: true }); }
+  return { ok: true };
+}
+async function resetVault(uid) {
+  if (!(await uiConfirm("سيُحفظ جانباً ما تعذّر فتحه ثم تبدأ خزنة فارغة لهذا المستخدم (تستعيد بياناتك من نسخة احتياطية). متابعة؟", { icon: "warning", title: "بدء خزنة جديدة", ok: "متابعة" })) || !(await uiPrompt("للتأكيد اكتب: جديد", { expect: "جديد" }))) return;
+  try { const raw = await Store.getAux("vault_" + uid); if (raw) await Store.putAux("vault_" + uid + "_old_" + Date.now(), raw); await Store.delAux("vault_" + uid); for (let i = 0; i < 3; i++) await Store.delAux("vsnap_" + uid + "_" + i); Store.vrev[uid] = null; toast("بدأت خزنة جديدة؛ سجّل الدخول"); } catch (e) { toast("تعذّر: " + e.message); }
+}
+async function regenRecovery() {   // administrator remembers the password but lost the recovery code: issue a new one (the old one stops working)
+  if (!isAdmin()) return toast("لمدير النظام فقط"); const pw = await reauthPw("لإنشاء رمز استرداد جديد أدخل كلمة مرورك"); if (pw == null) return; const u = me();
+  const code = [...rnd(12)].map(b => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("").replace(/(.{4})(?=.)/g, "$1-"), raw = code.replace(/-/g, "");
+  try { if (u.kr && subtleOK()) u.kr2 = await wrapKey(await unwrapKey(u.kr, pw), raw); if (u.sk && subtleOK()) u.sk2 = await wrapKey(await unwrapKey(u.sk, pw), raw); u.rec = await hashPw(raw); } catch (e) { return toast("تعذّر إنشاء الرمز: " + e.message); }
+  u.ua = Date.now(); audit("recovery_regen", u.username, ""); save(); if (!(await commit())) return; VIEW = { name: "recovery", arg: { code, org: DB.meta.org ? orgCode(DB.meta.org.fp) : "" } }; render();
+}
+async function enableEncryption() {
+  if (!subtleOK()) return toast("هذا المتصفح لا يدعم التشفير (افتح التطبيق من ملف محلي أو https)"); if (DB.meta.vaults) return toast("التشفير مفعّل أصلاً");
+  if (Date.now() - (DB.meta.lastBackup || 0) > 3600000) return toast("خذ نسخة احتياطية أولاً (المزيد ← تصدير / نسخة احتياطية) ثم كرّر");
+  if (!(await uiConfirm("سيُنقل كل ما على هذا الجهاز إلى خزنة مشفّرة بكلمة مرورك. إن نسيت كلمة المرور فلن تُفتح الخزنة إلا بنسخة احتياطية" + (isAdmin() ? " أو برمز الاسترداد الذي سيُنشأ الآن" : "") + ".", { icon: "warning", title: "تفعيل التشفير", ok: "تفعيل" }))) return;
+  const pw = await reauthPw("لتفعيل التشفير أدخل كلمة مرورك"); if (pw == null) return; const u = me(); let code = null;
+  try {
+    if (u.roleId === "admin") { code = [...rnd(12)].map(b => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("").replace(/(.{4})(?=.)/g, "$1-"); const raw = code.replace(/-/g, ""), ring = await makeRing(pw, raw); u.kr = ring.kr; u.kr2 = ring.kr2; u.rec = await hashPw(raw); if (u.sk) u.sk2 = await wrapKey(await unwrapKey(u.sk, pw), raw); }
+    else { u.vk = await wrapKey(rnd(32), pw); u.vkv = 1; }
+  } catch (e) { return toast("تعذّر إنشاء المفاتيح: " + e.message); }
+  DB.meta.vaultsPending = true; const r = await unlockVault(u, pw);
+  if (!r.ok) { DB.meta.vaultsPending = false; return toast("❌ " + r.err); }
+  audit("encryption_enabled", u.username, ""); save(); await commit("🔒 تم تفعيل تشفير بيانات الجهاز");
+  if (code) { VIEW = { name: "recovery", arg: { code, org: DB.meta.org ? orgCode(DB.meta.org.fp) : "" } }; render(); } else go("account");
+}
+async function encryptBytes(bytes, pass) { const salt = rnd(16), iv = rnd(12), it = 200000, k = await aesKey(await pbkdf2(pass, salt, it)); return { type: "camp-backup-enc", v: 1, at: Date.now(), s: b64(salt), i: it, iv: b64(iv), c: bigb64(new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, bytes))) }; }
+async function decryptBytes(o, pass) { try { const k = await aesKey(await pbkdf2(pass, unb64(o.s), o.i)); return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(o.iv) }, k, unb64(o.c))); } catch (e) { throw new Error("كلمة سر النسخة خاطئة أو الملف تالف"); } }
+const FIELD_BUILD = true;   // true in the field build: no "create a new system" path at all, accounts only arrive through a signed package
 const SENS = new Set(["user_create", "user_edit", "role_create", "role_edit", "role_delete", "camp_create", "camp_edit", "pack_export", "export_xlsx", "backup", "import", "wipe", "recover_ok", "password_change", "reauth_fail"]);
 const hex = (u) => [...u].map(b => b.toString(16).padStart(2, "0")).join("");
-const chainHash = (prev, e) => hex(words2bytes(sha256From(IV256(), U8(prev + "|" + [e.t, e.u, e.un, e.a, e.g, e.d, e.dv].join("|")), 0)));
-function audit(action, target, detail) {
-  const e = { t: Date.now(), u: SESSION ? SESSION.uid : null, un: me() ? me().username : "", a: action, g: target || "", d: detail || "", dv: DB.deviceId, s: SENS.has(action) ? 1 : 0 };
-  const last = DB.audit[DB.audit.length - 1]; e.h = chainHash((last && last.h) || DB.auditBase || "0", e); DB.audit.push(e);
-  if (DB.audit.length > 5000) { const cut = DB.audit.splice(0, DB.audit.length - 5000); DB.auditBase = cut[cut.length - 1].h || DB.auditBase; } save();
+const chainHash = (prev, e) => hex(words2bytes(sha256From(IV256(), U8(prev + "|" + [e.t, e.u, e.un, e.a, e.g, e.d, e.dv].concat(e.c === 2 ? [e.s, e.cm || ""] : []).join("|")), 0)));
+function audit(action, target, detail, camp) {
+  const e = { t: Date.now(), u: SESSION ? SESSION.uid : null, un: me() ? me().username : "", a: action, g: target || "", d: detail || "", dv: DB.deviceId, s: SENS.has(action) ? 1 : 0, cm: camp || "", c: 2 };
+  const dev = !!(DB.meta.vaults && !VAULT), arr = dev ? (DB.devAudit = DB.devAudit || []) : DB.audit, bk = dev ? "devAuditBase" : "auditBase";
+  const last = arr[arr.length - 1]; e.h = chainHash((last && last.h) || DB[bk] || "0", e); arr.push(e);
+  if (arr.length > 5000) { const cut = arr.splice(0, arr.length - 5000); DB[bk] = cut[cut.length - 1].h || DB[bk]; } save();
 }
-function verifyAudit() { let prev = DB.auditBase || "0"; for (let i = 0; i < DB.audit.length; i++) { const e = DB.audit[i]; if (!e.h) { prev = "0"; continue; } if (chainHash(prev, e) !== e.h) return i; prev = e.h; } return -1; }
-const allAudit = () => DB.audit.concat((DB.auditExt || []).map(e => ({ ...e, ext: true }))).sort((a, b) => b.t - a.t);
+function chainCheck(arr, base) {   // -> index of the first broken entry, or -1. An entry without a hash is only tolerated BEFORE the first hashed one (pre-0.2.1 history).
+  let prev = base || "0", seen = false;
+  for (let i = 0; i < arr.length; i++) { const e = arr[i]; if (!e.h) { if (seen) return i; prev = "0"; continue; } seen = true; if (chainHash(prev, e) !== e.h) return i; prev = e.h; }
+  return -1;
+}
+const verifyAudit = () => chainCheck(DB.audit, DB.auditBase), verifyDevAudit = () => chainCheck(DB.devAudit || [], DB.devAuditBase);
+let AUC = { v: -1, a: null };
+const auditVisible = (e) => { if (!SESSION || isAdmin()) return true; if (!e.u || e.u === me().id) return true; const mc = me().camps || []; if (e.cm) return mc.includes(e.cm); const u = DB.users.find(x => x.id === e.u); return !!(u && (u.camps || []).some(c => mc.includes(c))); };
+const allAudit = () => { if (AUC.v !== DBV || !AUC.a) AUC = { v: DBV, a: DB.audit.concat((DB.devAudit || []).map(e => ({ ...e, dev: true })), (DB.auditExt || []).map(e => ({ ...e, ext: true }))).sort((a, b) => b.t - a.t) }; return AUC.a.filter(auditVisible); };
 function mergeExtAudit(list, by) { DB.auditExt = DB.auditExt || []; const have = new Set(DB.auditExt.map(e => e.h).concat(DB.audit.map(e => e.h))); let n = 0; for (const e of list || []) if (e.h && !have.has(e.h)) { DB.auditExt.push({ ...e, x: by || "؟" }); have.add(e.h); n++; } if (DB.auditExt.length > 5000) DB.auditExt.splice(0, DB.auditExt.length - 5000); return n; }
 // ask for the password again before sensitive actions (stolen unlocked device / abuse protection)
 function askPassword(title) {
@@ -439,55 +681,99 @@ function askPassword(title) {
     d.querySelector("#rok").onclick = () => done(inp.value); d.querySelector("#rno").onclick = () => done(null); inp.onkeydown = e => { if (e.key === "Enter") done(inp.value); }; inp.focus();
   });
 }
-async function reauth(why) { if (!SESSION) return true; const pw = await askPassword(why); if (pw == null) return false; if (!(await checkPw(pw, me().pw))) { audit("reauth_fail", why, ""); toast("كلمة المرور غير صحيحة"); return false; } return true; }
-const intl = (n) => { n = (n || "").replace(/\D/g, ""); const cc = DB.meta.cc || "970"; return n.startsWith("0") ? cc + n.slice(1) : n.startsWith(cc) ? n : cc + n; };
+async function reauthPw(why) { const pw = await askPassword(why); if (pw == null) return null; if (!(await checkPw(pw, me().pw))) { audit("reauth_fail", why, ""); toast("كلمة المرور غير صحيحة"); return null; } return pw; }
+async function reauth(why) { if (!SESSION) return true; return (await reauthPw(why)) != null; }
+const intl = (n) => { let d = String(n || "").replace(/\D/g, ""); if (!d) return ""; if (d.startsWith("00")) return d.slice(2); if (d.startsWith("0")) return (DB.meta.cc || "970") + d.slice(1); return /^(970|972)\d{9}$/.test(d) ? d : (DB.meta.cc || "970") + d; };   // accepts 059…, 00970…, 00972…, +972…
 const emailOK = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
-const phoneOK = (p) => /^\d{9,10}$/.test(p);
+const phoneOK = (p) => { p = String(p || "").replace(/[\s()-]/g, ""); return /^\d{9,10}$/.test(p) || /^(\+|00)?(970|972)\d{9}$/.test(p); };
 function dateInRange(u) { const t = today(), f = parseDob(u.from), to = parseDob(u.to); return (!u.from || (f && f <= t)) && (!u.to || (to && to >= t)); }
 
 /* ============================== UI ============================== */
+/* ---------- styled dialogs (SweetAlert-style, no library, works offline) ---------- */
+const SWI = { warning: "!", question: "؟", success: "✓", error: "✕", info: "i" };
+function swal(o) {
+  
+  return new Promise(res => {
+    const d = document.createElement("div"); d.className = "sw-bg"; d.setAttribute("role", "dialog"); d.setAttribute("aria-modal", "true"); const ic = o.icon || "question", ask = !!(o.input || o.expect);
+    d.innerHTML = `<div class="sw"><div class="ic ${ic}">${SWI[ic]}</div>${o.title ? `<h3>${esc(o.title)}</h3>` : ""}<div class="tx">${esc(o.text || "")}</div>${ask ? `<input id="sw_in" autocomplete="off" placeholder="${esc(o.placeholder || "")}" value="${esc(o.value || "")}"><div class="er" id="sw_er"></div>` : ""}<div class="bt"><button class="btn ${o.danger ? "red" : ""}" id="sw_ok">${esc(o.ok || "موافق")}</button>${o.cancel === null ? "" : `<button class="btn sec" id="sw_no">${esc(o.cancel || "إلغاء")}</button>`}</div></div>`;
+    document.body.appendChild(d); const inp = d.querySelector("#sw_in"), prev = document.activeElement;
+    const done = (v) => { d.remove(); document.removeEventListener("keydown", key, true); try { prev && prev.focus && prev.focus(); } catch (e) { } res(v); };
+    const ok = () => { if (!ask) return done(true); const v = inp.value.trim(); if (o.expect && v !== o.expect) { d.querySelector("#sw_er").textContent = "اكتب: " + o.expect; return; } if (o.required !== false && !v) { d.querySelector("#sw_er").textContent = "هذا الحقل مطلوب"; return; } done(o.expect ? o.expect : v); };
+    const no = () => done(ask ? null : false), key = (e) => { if (e.key === "Escape") { e.stopPropagation(); no(); } else if (e.key === "Enter" && e.target.tagName !== "BUTTON") { e.preventDefault(); ok(); } };
+    d.querySelector("#sw_ok").onclick = ok; const nb = d.querySelector("#sw_no"); if (nb) nb.onclick = no; d.addEventListener("click", e => { if (e.target === d && o.cancel !== null) no(); }); document.addEventListener("keydown", key, true); (inp || d.querySelector("#sw_ok")).focus();
+  });
+}
+const uiAlert = (text, o = {}) => swal({ icon: "info", ok: "حسناً", cancel: null, ...o, text }).then(() => true);
+const uiConfirm = (text, o = {}) => swal({ icon: "question", ok: "نعم", cancel: "إلغاء", ...o, text }).then(v => v === true);
+const uiPrompt = (text, o = {}) => swal({ icon: "question", input: true, ok: "تأكيد", cancel: "إلغاء", ...o, text }).then(v => typeof v === "string" ? v : null);
 let VIEW = { name: "login" };
-function toast(t) { const d = document.createElement("div"); d.className = "toast"; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2800); }
-function go(name, arg) { VIEW = { name, arg }; render(); window.scrollTo(0, 0); }
+function toast(t) { const d = document.createElement("div"); d.className = "toast" + (/^(✅|✔|🔒)/.test(t) ? " ok" : /^(❌|⛔)/.test(t) ? " err" : /^⚠/.test(t) ? " warn" : ""); d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2800); }
+function go(name, arg) {
+  if (VIEW.name === "form" && VIEW.dirty && name !== "form" && SESSION) { uiConfirm("إن خرجت تبقى مسودة يمكنك استئنافها من الشاشة الرئيسية.", { icon: "warning", title: "تعديلات غير محفوظة", ok: "خروج", cancel: "البقاء هنا" }).then(ok => { if (!ok) return; saveDraft(); VIEW.dirty = false; go(name, arg); }); return; }
+  if (SESSION && me() && me().mustChange && name !== "account" && name !== "login") { toast("غيّر كلمة المرور المؤقتة أولاً"); name = "account"; arg = null; }
+  VIEW = { name, arg }; render(); window.scrollTo(0, 0);
+}
+/* unsaved form drafts survive back-button / closing / crash (kept in their own small key, restored from the home screen) */
+let DRAFT = null, draftT = null;
+function draftChanged() { if (!VIEW.draft) return; VIEW.dirty = true; clearTimeout(draftT); draftT = setTimeout(saveDraft, 600); }
+function saveDraft() { clearTimeout(draftT); if (!VIEW.draft || !VIEW.dirty || !SESSION || !Store.db) return; DRAFT = { u: SESSION.uid, at: Date.now(), p: VIEW.draft, arg: VIEW.arg || {} }; sealObj(DRAFT, "draft").then(v => Store.putAux("draft", v)).catch(() => { }); }
+function clearDraft() { DRAFT = null; clearTimeout(draftT); if (Store.db) Store.delAux("draft").catch(() => { }); }
+function loadDraft() { if (!Store.db) return; Store.getAux("draft").then(d => openObj(d, "draft")).then(d => { DRAFT = d && SESSION && d.u === SESSION.uid ? d : null; if (DRAFT && VIEW.name === "home") render(); }).catch(() => { }); }
+function resumeDraft() { if (!DRAFT) return; VIEW = { name: "form", arg: DRAFT.arg || {}, draft: DRAFT.p, dirty: true }; render(); }
+async function discardDraft() { if (!(await uiConfirm("حذف المسودة غير المحفوظة؟", { icon: "warning", danger: true, ok: "حذف" }))) return; clearDraft(); render(); }
 function setBar(html) { $("#bar").innerHTML = html; }
 function dl(bytes, name, type) { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes], { type })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
 const stamp = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 const who = () => { const w = ((me() || {}).username || "").replace(/[^A-Za-z0-9_\-]/g, ""); return /[A-Za-z0-9]/.test(w) ? w : "entry"; };
-const appTitle = () => { const cs = myCamps(); return cs.length === 1 ? cs[0].name : (DB.meta.camp || "نظام إدخال بيانات الأسر"); };
+const brand = () => DB.meta.brand || {};
+function applyBrand() {
+  const b = brand(); document.documentElement.style.setProperty("--navy", /^#[0-9a-fA-F]{6}$/.test(b.color || "") ? b.color : "#1f4e78");
+  const tc = document.querySelector('meta[name="theme-color"]'); if (tc) tc.content = /^#[0-9a-fA-F]{6}$/.test(b.color || "") ? b.color : "#1f4e78";
+  let img = $("#logo"); if (b.logo && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(b.logo)) { if (!img) { img = document.createElement("img"); img.id = "logo"; img.alt = ""; img.style.cssText = "width:38px;height:38px;border-radius:8px;background:#fff"; $("header").prepend(img); } img.src = b.logo; } else if (img) img.remove();
+  document.title = b.name || "إدخال بيانات الأسر";
+}
+const appTitle = () => { const cs = myCamps(); return cs.length === 1 ? cs[0].name : (brand().name || DB.meta.camp || "نظام إدخال بيانات الأسر"); };
 const lock = () => { if (document.activeElement) document.activeElement.blur(); };
 
+function sessionValid() { if (!SESSION) return true; const u = me(); return !!(u && u.active !== false && dateInRange(u) && (u.pwv || 0) === (SESSION.pwv || 0)); }
 function render() {
+  applyBrand();
+  if (SESSION && !sessionValid()) { SESSION = null; FLT = null; lockAfterFlush(); VIEW = { name: "login" }; setTimeout(() => toast("انتهت جلستك: تغيّر حسابك أو كلمة مرورك أو أُوقف الحساب"), 0); }
+  if (SAVE.blocked && STORE_PROBLEM) { $("#hb").style.display = "none"; $("#ttl").textContent = "نظام إدخال بيانات الأسر"; $("#sub").textContent = ""; setBar(""); return viewStorageProblem(); }
   const v = validateAll();
   $("#ttl").textContent = SESSION ? appTitle() : (DB.meta.camp || "نظام إدخال بيانات الأسر");
   $("#sub").textContent = SESSION ? `${me().name} • ${roleName(me().roleId)} • يعمل بدون إنترنت` : "يعمل بدون إنترنت";
   $("#hb").style.display = SESSION ? "" : "none";
   if (!SESSION) return ({ setup: viewSetup, login: viewLogin, recover: viewRecover, recovery: viewRecoveryCode }[VIEW.name] || viewLogin)();
-  ({ home: viewHome, family: viewFamily, form: viewForm, data: viewData, quality: viewQuality, menu: viewMenu, users: viewUsers, userform: viewUserForm, roles: viewRoles, roleform: viewRoleForm, camps: viewCamps, campform: viewCampForm, audit: viewAudit, trash: viewTrash, account: viewAccount }[VIEW.name] || viewHome)(v);
+  ({ home: viewHome, family: viewFamily, form: viewForm, data: viewData, quality: viewQuality, menu: viewMenu, users: viewUsers, userform: viewUserForm, roles: viewRoles, roleform: viewRoleForm, camps: viewCamps, campform: viewCampForm, audit: viewAudit, trash: viewTrash, account: viewAccount, importpreview: viewImportPreview, brand: viewBrand, welcome: viewWelcome }[VIEW.name] || viewHome)(v);
 }
 
 /* ---------- first run / login / recovery ---------- */
 function fieldHtml(id, label, extra = "", val = "", type = "text", cls = "") { return `<div><label>${label}</label><input id="${id}" type="${type}" class="${cls}" value="${esc(val)}" ${extra}></div>`; }
 function viewSetup() {
+  if (FIELD_BUILD) return go("login");
   const gov = DB.meta.defGov || "65";
   $("#view").innerHTML = `<div class="card"><b>إعداد النظام لأول مرة</b><div class="hint">ستنشئ حساب <b>مدير النظام</b> وأول مخيم. بعدها تضيف المستخدمين والأدوار. (إذا كنت باحثاً وعندك ملف «حزمة حسابات» فاستورده من شاشة الدخول.)</div></div>
   <div class="card"><b>المخيم الأول</b><div class="grid" style="margin-top:8px">
-   ${fieldHtml("s_camp", "اسم المخيم", "", "")}
+   ${fieldHtml("s_camp", "اسم المخيم", 'data-lang="ar"', "")}
    <div><label>المحافظة</label><select id="s_gov" onchange="document.getElementById('s_loc').innerHTML=locOptions(this.value,'')">${opt(LK.gov, gov)}</select></div>
    <div class="full"><label>التجمع السكاني</label><select id="s_loc">${locOptions(gov, "")}</select></div></div></div>
   <div class="card"><b>مدير النظام</b><div class="grid" style="margin-top:8px">
-   ${fieldHtml("s_name", "الاسم الكامل")}${fieldHtml("s_user", "اسم المستخدم (أحرف لاتينية وأرقام)", 'autocomplete="username" dir="ltr"', "", "text", "num")}
+   ${fieldHtml("s_name", "الاسم الكامل", 'data-lang="ar"')}${fieldHtml("s_user", "اسم المستخدم (أحرف لاتينية وأرقام)", 'autocomplete="username" dir="ltr" data-lang="en" data-case="lower"', "", "text", "num")}
    ${fieldHtml("s_pw", "كلمة المرور (8 أحرف فأكثر)", 'autocomplete="new-password"', "", "password")}${fieldHtml("s_pw2", "تأكيد كلمة المرور", 'autocomplete="new-password"', "", "password")}
-   ${fieldHtml("s_phone", "الجوال", 'inputmode="tel"', "", "text", "num")}${fieldHtml("s_wa", "واتساب (اتركه فارغاً إن كان نفسه)", 'inputmode="tel"', "", "text", "num")}
-   <div class="full">${fieldHtml("s_mail", "البريد الإلكتروني", 'dir="ltr"', "", "email", "num")}</div></div></div>
+   ${fieldHtml("s_phone", "الجوال", 'inputmode="tel" data-num="p" placeholder="059… أو +970…"', "", "text", "num")}${fieldHtml("s_wa", "واتساب (اتركه فارغاً إن كان نفسه)", 'inputmode="tel" data-num="p" placeholder="+970… أو +972…"', "", "text", "num")}
+   <div class="full">${fieldHtml("s_mail", "البريد الإلكتروني", 'dir="ltr" data-lang="en" data-case="lower"', "", "email", "num")}</div></div></div>
+  <div class="card"><label style="display:flex;gap:10px;align-items:flex-start;color:var(--txt);font-size:15px"><input type="checkbox" id="s_enc" style="width:24px;min-height:24px" checked> <span><b>تشفير بيانات هذا الجهاز (موصى به)</b><br><span class="hint">سجلات الأسر وسجل التدقيق والملاحظات تُحفظ مشفّرة بمفتاح مرتبط بكلمة مرورك. نسيان كلمة المرور يُعالَج برمز الاسترداد الذي سيُعرض لك مرة واحدة.</span></span></label></div>
   <ul class="msgs" id="s_msg"></ul>`;
   setBar(`<button class="btn" onclick="doSetup()">إنشاء النظام</button><button class="btn sec" onclick="go('login')">رجوع</button>`);
 }
 async function doSetup() {
+  if (FIELD_BUILD) return toast("هذه نسخة ميدانية: لا يمكن إنشاء نظام جديد منها");
   const v = (id) => ($("#" + id).value || "").trim(), err = [];
   if (!v("s_camp")) err.push("اسم المخيم مطلوب"); if (!L.gov[v("s_gov")]) err.push("اختر المحافظة"); if (!L.loc[v("s_loc")]) err.push("اختر التجمع السكاني");
   if (!v("s_name")) err.push("الاسم مطلوب"); if (!/^[A-Za-z0-9._-]{3,}$/.test(v("s_user"))) err.push("اسم المستخدم: 3 أحرف أو أرقام لاتينية فأكثر");
   if (($("#s_pw").value || "").length < 8) err.push("كلمة المرور أقل من 8 أحرف"); if ($("#s_pw").value !== $("#s_pw2").value) err.push("تأكيد كلمة المرور لا يطابق");
-  if (v("s_phone") && !phoneOK(v("s_phone"))) err.push("الجوال: 9 أو 10 أرقام"); if (v("s_wa") && !phoneOK(v("s_wa"))) err.push("الواتساب: 9 أو 10 أرقام"); if (v("s_mail") && !emailOK(v("s_mail"))) err.push("البريد غير صحيح");
+  if (v("s_phone") && !phoneOK(v("s_phone"))) err.push("الجوال: 059… أو +970… أو +972…"); if (v("s_wa") && !phoneOK(v("s_wa"))) err.push("الواتساب: 059… أو +970… أو +972…"); if (v("s_mail") && !emailOK(v("s_mail"))) err.push("البريد غير صحيح");
   if (err.length) { $("#s_msg").innerHTML = err.map(e => `<li class="e">❌ ${esc(e)}</li>`).join(""); return; }
   const code = [...crypto.getRandomValues(new Uint8Array(12))].map(b => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("").replace(/(.{4})(?=.)/g, "$1-");
   const camp = { id: uid(), name: v("s_camp"), gov: v("s_gov"), locs: [v("s_loc")] };
@@ -496,12 +782,14 @@ async function doSetup() {
   admin.rec = await hashPw(code.replace(/-/g, ""));
   DB.users = [admin];
   for (const p of DB.people) { p.campId = p.campId || camp.id; p.cb = p.cb || admin.id; p.ca = p.ca || Date.now(); }
+  if (subtleOK()) { const o = await genOrg($("#s_pw").value, code.replace(/-/g, "")); admin.sk = o.sk; admin.sk2 = o.sk2; DB.meta.org = { pub: o.pub, fp: o.fp }; if ($("#s_enc") && $("#s_enc").checked) { const ring = await makeRing($("#s_pw").value, code.replace(/-/g, "")); admin.kr = ring.kr; admin.kr2 = ring.kr2; DB.meta.vaultsPending = true; } }
   SESSION = { uid: admin.id }; audit("setup", camp.name, "تم إنشاء النظام"); SESSION = null; save();
-  VIEW = { name: "recovery", arg: { code } }; render();
+  VIEW = { name: "recovery", arg: { code, org: DB.meta.org ? orgCode(DB.meta.org.fp) : "" } }; render();
 }
 function viewRecoveryCode() {
   $("#view").innerHTML = `<div class="card"><b>✅ تم إنشاء النظام</b><div class="banner" style="margin-top:8px"><b>رمز الاسترداد (يُعرض مرة واحدة فقط):</b><div class="num" style="font-size:26px;font-weight:700;margin:8px 0;letter-spacing:2px">${esc(VIEW.arg.code)}</div>اكتبه على ورقة واحفظه في مكان آمن. هو الطريقة الوحيدة لاستعادة حساب مدير النظام إن نسيت كلمة المرور (لا يوجد إنترنت ولا سيرفر).</div>
-  <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="ack" style="width:24px;min-height:24px"> سجّلت الرمز في مكان آمن</label></div>`;
+  ${VIEW.arg.org ? `<div class="banner" style="margin-top:8px"><b>رمز المؤسسة:</b> <span class="num" style="font-size:20px;font-weight:700">${esc(VIEW.arg.org)}</span><br>أعطه لموظفيك <b>منفصلاً عن حزمة الحسابات</b> (مكالمة/رسالة أخرى). يُطلب منهم مرة واحدة عند استيراد أول حزمة، ويتأكدون به أن الحزمة من مؤسستك وليست من شخص آخر. يمكنك رؤيته لاحقاً في شاشة المستخدمين.</div>` : '<div class="banner">⚠ هذا المتصفح لا يدعم توقيع الحزم؛ افتح التطبيق من ملف محلي أو رابط https لتفعيل حماية الحزم.</div>'}
+  <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="ack" style="width:24px;min-height:24px"> سجّلت الرمزين في مكان آمن</label></div>`;
   setBar(`<button class="btn" onclick="if(!document.getElementById('ack').checked)return toast('أكّد أنك سجّلت الرمز');go('login')">متابعة إلى الدخول</button>`);
 }
 function failInfo(u) { try { return JSON.parse(localStorage.getItem("camp_fail_" + u) || "{}"); } catch (e) { return {}; } }
@@ -511,10 +799,11 @@ function viewLogin() {
     $("#view").innerHTML = `<div class="card"><b>مرحباً — هذا الجهاز غير مُعدّ بعد</b><div class="hint">اختر ما يناسبك:</div></div>
     <div class="card"><b>① أنا باحث / مشرف عندي «حزمة حسابات»</b><div class="hint">استورد الملف الذي أرسله لك مدير النظام (JSON) ثم سجّل الدخول باسمك.</div>
      <div class="row" style="margin-top:8px"><input id="packfile" type="file" accept=".json" style="max-width:300px"><button class="btn sec small" onclick="doImportPack()">استيراد الحزمة</button></div></div>
-    <div class="card"><b>② أنا مدير النظام وأريد إنشاء نظام جديد</b><div class="hint">تنشئ أول مخيم وحساب المدير ورمز الاسترداد.</div><div class="row" style="margin-top:8px"><button class="btn gold" onclick="go('setup')">إعداد نظام جديد</button></div></div>`;
+    ${FIELD_BUILD ? "" : `<div class="card"><b>③ استعادة جهاز مدير النظام</b><div class="hint">جهاز المدير فُقد أو تعطّل؟ استورد «ملف حسابات المدير» الذي أخذته سابقاً (تبقى بصمة المؤسسة نفسها فلا تحتاج الأجهزة الميدانية إلى إعادة إعداد).</div><div class="row" style="margin-top:8px"><input id="acctfile" type="file" accept=".json" style="max-width:300px"><button class="btn sec small" onclick="doRestoreAcct()">استعادة</button></div></div>`}
+    ${FIELD_BUILD ? '<div class="card hint">هذه نسخة <b>ميدانية</b>: لا تنشئ أنظمة جديدة. حسابك يصلك من مدير النظام داخل «حزمة حسابات» موقّعة، مع «رمز المؤسسة» الذي يعطيك إياه.</div>' : `<div class="card"><b>② أنا مدير النظام وأريد إنشاء نظام جديد</b><div class="hint">تنشئ أول مخيم وحساب المدير ورمز الاسترداد.</div><div class="row" style="margin-top:8px"><button class="btn gold" onclick="go('setup')">إعداد نظام جديد</button></div></div>`}`;
     setBar(""); return;
   }
-  $("#view").innerHTML = `<div class="card"><b>تسجيل الدخول</b><div class="grid" style="margin-top:8px"><div class="full"><label>اسم المستخدم</label><input id="l_user" class="num" dir="ltr" autocomplete="username" autocapitalize="none" autofocus></div>
+  $("#view").innerHTML = `<div class="card"><b>تسجيل الدخول</b><div class="grid" style="margin-top:8px"><div class="full"><label>اسم المستخدم</label><input id="l_user" class="num" data-lang="en" data-case="lower" dir="ltr" autocomplete="username" autocapitalize="none" autofocus></div>
   <div class="full"><label>كلمة المرور</label><input id="l_pw" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div></div><ul class="msgs" id="l_msg"></ul></div>
   <div class="card"><div class="hint">جهاز جديد لباحث؟ استورد <b>حزمة الحسابات</b> التي أرسلها لك المسؤول (ملف JSON):</div>
    <div class="row" style="margin-top:8px"><input id="packfile" type="file" accept=".json" style="max-width:300px"><button class="btn sec small" onclick="doImportPack()">استيراد الحزمة</button></div>
@@ -531,50 +820,115 @@ async function doLogin() {
   if (!ok) { failSet(un, { n: ((f.n || 0) >= 5 && Date.now() - f.t >= 5 * 60000 ? 0 : (f.n || 0)) + 1, t: Date.now() }); audit("login_fail", un, ""); return msg("اسم المستخدم أو كلمة المرور غير صحيحة"); }
   if (u.active === false) return msg("هذا الحساب موقوف. راجع المسؤول.");
   if (!dateInRange(u)) return msg("انتهت صلاحية هذا الحساب أو لم تبدأ بعد.");
-  failSet(un, null); SESSION = { uid: u.id, prev: u.lastLogin || 0 }; u.lastLogin = Date.now(); lastAct = Date.now(); audit("login", u.username, ""); VIEW = { name: "home" }; render();
+  $("#lb") && ($("#lb").disabled = true, $("#lb").textContent = "جارٍ فتح الخزنة…");
+  const ul = await unlockVault(u, pw); $("#lb") && ($("#lb").disabled = false, $("#lb").textContent = "دخول");
+  if (!ul.ok) { msg(ul.err); if (ul.vaultFailed) $("#l_msg").insertAdjacentHTML("beforeend", `<li><button class="btn small red" onclick="resetVault('${u.id}')">بدء خزنة جديدة (يُحفظ القديم جانباً)</button></li>`); return; }
+  if (ul.note) setTimeout(() => toast("🔒 " + ul.note), 300);
+  failSet(un, null); SESSION = { uid: u.id, prev: u.lastLogin || 0, pwv: u.pwv || 0 }; FLT = null; loadDraft(); u.lastLogin = Date.now(); lastAct = Date.now(); audit("login", u.username, ""); VIEW = { name: u.mustChange ? "account" : "home" }; render();
 }
-function logout(why) { if (SESSION) audit("logout", me().username, why || ""); SESSION = null; VIEW = { name: "login" }; render(); if (why) toast(why); }
+function lockAfterFlush() { if (DB.meta.vaults) flush({ snap: true, force: true }).then(ok => { if (ok && !SESSION) lockVault(); }); }
+function logout(why) { FLT = null; if (SESSION) { saveDraft(); audit("logout", me().username, why || ""); } SESSION = null; lockAfterFlush(); if (!DB.meta.vaults) flush({ snap: true, force: true }); VIEW = { name: "login" }; render(); if (why) toast(why); }
 function viewRecover() {
   $("#view").innerHTML = `<div class="card"><b>استعادة حساب مدير النظام</b><div class="hint">أدخل رمز الاسترداد الذي حصلت عليه عند إنشاء النظام، وكلمة مرور جديدة.</div><div class="grid" style="margin-top:8px">
-   ${fieldHtml("r_code", "رمز الاسترداد", 'dir="ltr" autocapitalize="characters"', "", "text", "num")}${fieldHtml("r_user", "اسم مستخدم مدير النظام", 'dir="ltr" autocapitalize="none"', "", "text", "num")}
+   ${fieldHtml("r_code", "رمز الاسترداد", 'dir="ltr" autocapitalize="characters"', "", "text", "num")}${fieldHtml("r_user", "اسم مستخدم المدير (اتركه فارغاً إن نسيته وكان المدير الوحيد)", 'data-lang="en" data-case="lower" dir="ltr" autocapitalize="none"', "", "text", "num")}
    ${fieldHtml("r_pw", "كلمة المرور الجديدة", "", "", "password")}${fieldHtml("r_pw2", "تأكيد", "", "", "password")}</div><ul class="msgs" id="r_msg"></ul></div>`;
   setBar(`<button class="btn" onclick="doRecover()">إعادة تعيين</button><button class="btn sec" onclick="go('login')">رجوع</button>`);
 }
 async function doRecover() {
-  const msg = (t) => { $("#r_msg").innerHTML = `<li class="e">❌ ${esc(t)}</li>`; }, u = DB.users.find(x => x.username === ($("#r_user").value || "").trim().toLowerCase() && x.roleId === "admin");
-  if (!u || !u.rec) return msg("حساب غير موجود أو لا يملك رمز استرداد"); if (($("#r_pw").value || "").length < 8) return msg("كلمة المرور أقل من 8 أحرف"); if ($("#r_pw").value !== $("#r_pw2").value) return msg("التأكيد لا يطابق");
-  if (!(await checkPw(($("#r_code").value || "").replace(/[\s-]/g, "").toUpperCase(), u.rec))) { audit("recover_fail", u.username, ""); return msg("رمز الاسترداد غير صحيح"); }
-  u.pw = await hashPw($("#r_pw").value); u.ua = Date.now(); failSet(u.username, null); audit("recover_ok", u.username, ""); save(); toast("تم تعيين كلمة المرور. سجّل الدخول."); go("login");
+  const msg = (t) => { $("#r_msg").innerHTML = `<li class="e">❌ ${esc(t)}</li>`; }, admins = DB.users.filter(x => x.roleId === "admin"), un0 = ($("#r_user").value || "").trim().toLowerCase(), u = un0 ? admins.find(x => x.username === un0) : (admins.length === 1 ? admins[0] : null);
+  const f = failInfo("__recover"); if (f.n >= 5 && Date.now() - f.t < 15 * 60000) return msg("تم قفل الاستعادة مؤقتاً بعد محاولات خاطئة. حاول بعد 15 دقيقة.");
+  const bump = () => failSet("__recover", { n: ((f.n || 0) >= 5 && Date.now() - f.t >= 15 * 60000 ? 0 : (f.n || 0)) + 1, t: Date.now() });
+  if (!u || !u.rec) { bump(); return msg("بيانات الاستعادة غير صحيحة"); }
+  const pw = $("#r_pw").value || "", weak = pwWeak(pw, u.username); if (weak) return msg(weak); if (pw !== $("#r_pw2").value) return msg("التأكيد لا يطابق");
+  const code = ($("#r_code").value || "").replace(/[\s-]/g, "").toUpperCase();
+  if (!(await checkPw(code, u.rec))) { bump(); audit("recover_fail", u.username, ""); return msg("بيانات الاستعادة غير صحيحة"); }
+  if (u.sk2 && subtleOK()) { try { u.sk = await wrapKey(await unwrapKey(u.sk2, code), pw); } catch (e) { return msg("تعذّر فك مفتاح المؤسسة بالرمز؛ لم تُغيَّر كلمة المرور"); } }
+  if (u.kr2 && subtleOK()) { try { u.kr = await wrapKey(await unwrapKey(u.kr2, code), pw); } catch (e) { return msg("تعذّر فك مفتاح الخزنة بالرمز؛ لم تُغيَّر كلمة المرور"); } }
+  u.pw = await hashPw(pw); u.pwv = (u.pwv || 0) + 1; u.ua = Date.now(); failSet(u.username, null); failSet("__recover", null); audit("recover_ok", u.username, ""); save(); await commit(); await uiAlert("اسم المستخدم: " + u.username + "\nسجّل الدخول بكلمة المرور الجديدة.", { icon: "success", title: "تمت الاستعادة" }); go("login");
 }
 
 /* ---------- packages (camps + roles + users) for other devices ---------- */
+const PACK_USER = ["id", "name", "username", "pw", "roleId", "camps", "locs", "phone", "wa", "email", "active", "from", "to", "ca", "ua", "pwv", "mustChange", "vk", "vkv"];
 async function exportPack() {
-  if (!can("user.manage")) return; if (!(await reauth("لإنشاء حزمة الحسابات أدخل كلمة مرورك"))) return;
-  const users = DB.users.filter(u => u.roleId !== "admin" && u.active !== false && (isAdmin() || canManageUser(u)));
-  const camps = DB.camps.filter(c => isAdmin() || (me().camps || []).includes(c.id));
-  const roleIds = new Set(users.map(u => u.roleId)), roles = DB.roles.filter(r => roleIds.has(r.id));
-  const pack = { type: "camp-package", v: 1, at: Date.now(), by: me().username, camps, roles, users, cc: DB.meta.cc };
-  audit("pack_export", `${users.length} مستخدم`, ""); dl(JSON.stringify(pack), `camp_package_${stamp()}.json`, "application/json"); toast(`حزمة: ${users.length} مستخدم، ${camps.length} مخيم`);
+  if (!isAdmin() || !subtleOK()) return toast(isAdmin() ? "هذا المتصفح لا يدعم توقيع الحزم (افتح التطبيق من ملف محلي أو https)" : "حزم الحسابات يصدّرها مدير النظام فقط (لأنها موقّعة بمفتاح المؤسسة)");
+  const pw = await reauthPw("لتوقيع حزمة الحسابات أدخل كلمة مرورك"); if (pw == null) return;
+  const adm = me(); let pk8;
+  try {
+    if (!adm.sk) { const code = (await uiPrompt("هذا الحساب لا يملك مفتاح مؤسسة بعد. أدخل رمز الاسترداد (ليُحفظ نسخة احتياطية من المفتاح) أو اتركه فارغاً لإنشائه بدونه.", { title: "مفتاح المؤسسة", required: false, ok: "متابعة" })) || ""; const o = await genOrg(pw, code.replace(/[\s-]/g, "").toUpperCase() || pw); adm.sk = o.sk; adm.sk2 = code ? o.sk2 : null; DB.meta.org = { pub: o.pub, fp: o.fp }; audit("org_key_create", fmtFp(o.fp), ""); pk8 = await unwrapKey(adm.sk, pw); }
+    else pk8 = await unwrapKey(adm.sk, pw);
+  } catch (e) { return toast("تعذّر فتح مفتاح المؤسسة: " + e.message); }
+  const users = DB.users.filter(u => u.roleId !== "admin").map(u => { const o = {}; for (const k of PACK_USER) if (u[k] !== undefined) o[k] = u[k]; return o; });   // includes suspended users so devices deactivate them
+  const roleIds = new Set(users.map(u => u.roleId)), roles = DB.roles.filter(r => roleIds.has(r.id) && r.id !== "admin").map(r => ({ id: r.id, name: r.name, perms: r.perms }));
+  const rev = (DB.meta.packRev || 0) + 1, body = { type: "camp-package", v: 2, at: Date.now(), rev, by: adm.username, org: DB.meta.org.pub, camps: DB.camps.map(c => ({ id: c.id, name: c.name, gov: c.gov, locs: c.locs })), roles, users, cc: DB.meta.cc, enc: !!(DB.meta.vaults || DB.meta.vaultsPending), rules: { headPhone: (DB.meta.rules || {}).headPhone || "warn" }, brand: brand().name || brand().logo || brand().color ? { name: brand().name || "", color: brand().color || "", logo: brand().logo || "" } : null };
+  const sig = await signBody(body, pk8); DB.meta.packRev = rev; audit("pack_export", `${users.length} مستخدم • رقم ${rev}`, ""); save(); await commit();
+  dl(JSON.stringify({ ...body, sig }), `camp_package_${stamp()}_r${rev}.json`, "application/json"); toast(`حزمة موقّعة رقم ${rev}: ${users.length} مستخدم، ${body.camps.length} مخيم`);
 }
 async function doImportPack() {
   const f = $("#packfile").files[0]; if (!f) return toast("اختر ملف الحزمة أولاً");
-  try { const r = importPackObj(JSON.parse(await f.text())); toast(`تم: ${r.users} مستخدم، ${r.camps} مخيم. سجّل الدخول.`); render(); } catch (e) { toast("فشل استيراد الحزمة: " + e.message); }
+  try {
+    const pk = JSON.parse(await f.text()); let code = "";
+    if (!DB.meta.org) { code = (await uiPrompt("أدخل «رمز المؤسسة» الذي أعطاك إياه مدير النظام (12 خانة) للتأكد أن الحزمة منه.", { title: "رمز المؤسسة", placeholder: "XXXX-XXXX-XXXX", icon: "info" })) || ""; if (!code) return; }
+    const r = await importPack(pk, code); toast(`تم: ${r.users} مستخدم، ${r.camps} مخيم${r.revoked ? "، أُوقف " + r.revoked : ""}. سجّل الدخول.`); render();
+  } catch (e) { toast("فشل استيراد الحزمة: " + e.message); }
 }
-function importPackObj(pk) {
+const ID_RE = /^[A-Za-z0-9_-]{1,40}$/, str = (v, n) => typeof v === "string" && v.length <= n;
+function cleanPack(b) {   // structural validation + whitelisting: nothing outside the known shapes is ever stored
+  const E = (m) => { throw new Error("الحزمة غير صالحة: " + m); }; if (!Array.isArray(b.camps) || !Array.isArray(b.roles) || !Array.isArray(b.users)) E("بنية ناقصة");
+  if (b.camps.length > 500 || b.users.length > 2000 || b.roles.length > 100) E("أحجام غير معقولة");
+  const camps = b.camps.map(c => { if (!c || !ID_RE.test(c.id) || !str(c.name, 80) || !c.name.trim() || !L.gov[c.gov] || !Array.isArray(c.locs) || c.locs.some(x => !L.loc[x])) E("مخيم غير صالح"); return { id: c.id, name: c.name.trim(), gov: c.gov, locs: c.locs.slice() }; });
+  const roles = b.roles.map(r => { if (!r || !ID_RE.test(r.id) || r.id === "admin" || !str(r.name, 60) || !r.name.trim() || !Array.isArray(r.perms)) E("دور غير صالح أو يحاول استعمال دور مدير النظام"); return { id: r.id, name: r.name.trim(), perms: r.perms.filter(p => ALLP.includes(p)) }; });
+  const campIds = new Set(camps.map(c => c.id).concat(DB.camps.map(c => c.id))), roleIds = new Set(roles.map(r => r.id).concat(DB.roles.filter(r => r.id !== "admin").map(r => r.id)));
+  const vkOk = (w) => { if (w == null) return undefined; if (!w || !str(w.s, 64) || !str(w.iv, 64) || !str(w.c, 400) || !(w.i >= 10000 && w.i <= 2000000)) E("مفتاح خزنة غير صالح"); return { s: w.s, i: w.i, iv: w.iv, c: w.c }; };
+  const users = b.users.map(u => { if (!u || !ID_RE.test(u.id) || !str(u.name, 80) || !/^[a-z0-9._-]{3,40}$/.test(u.username || "") || u.roleId === "admin" || !roleIds.has(u.roleId)) E("مستخدم غير صالح"); if (!u.pw || !str(u.pw.s, 64) || !str(u.pw.h, 128) || !(u.pw.i >= 10000 && u.pw.i <= 2000000)) E("بيانات كلمة المرور غير صالحة");
+    if (!Array.isArray(u.camps) || u.camps.some(c => !campIds.has(c)) || !Array.isArray(u.locs) || u.locs.some(x => !L.loc[x])) E("نطاق مستخدم غير صالح");
+    for (const k of ["phone", "wa"]) if (u[k] && !phoneOK(u[k])) E("رقم هاتف غير صالح"); if (u.email && !emailOK(u.email)) E("بريد غير صالح"); for (const k of ["from", "to"]) if (u[k] && !parseDob(u[k])) E("تاريخ غير صالح");
+    return { id: u.id, name: u.name.trim(), username: u.username, pw: { s: u.pw.s, i: u.pw.i, h: u.pw.h }, roleId: u.roleId, camps: u.camps.slice(), locs: u.locs.slice(), phone: u.phone || "", wa: u.wa || "", email: u.email || "", active: u.active !== false, from: u.from || "", to: u.to || "", ca: +u.ca || 0, ua: +u.ua || 0, pwv: +u.pwv || 0, mustChange: !!u.mustChange, vk: vkOk(u.vk), vkv: +u.vkv || 0 }; });
+  if (new Set(users.map(u => u.username)).size !== users.length || new Set(users.map(u => u.id)).size !== users.length) E("أسماء أو معرّفات مستخدمين مكررة");
+  let brandOk = null; if (b.brand) { const br = b.brand; if (!str(br.name, 80) || !(br.color === "" || /^#[0-9a-fA-F]{6}$/.test(br.color)) || !str(br.logo, 45000) || (br.logo && !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(br.logo))) E("هوية البرنامج غير صالحة"); brandOk = { name: br.name.trim(), color: br.color, logo: br.logo }; }
+  return { camps, roles, users, brand: brandOk, enc: b.enc === true, rules: b.rules && ["off", "warn", "error"].includes(b.rules.headPhone) ? { headPhone: b.rules.headPhone } : null };
+}
+async function importPack(pk, code) {
   if (!pk || pk.type !== "camp-package") throw new Error("ليس ملف حزمة حسابات");
-  const up = (arr, items, key) => { for (const it of items || []) { const i = arr.findIndex(x => x[key] === it[key]); if (i < 0) arr.push(it); else if ((it.ua || it.ca || 0) >= (arr[i].ua || arr[i].ca || 0) || arr[i].system === undefined) arr[i] = { ...arr[i], ...it }; } };
-  for (const r of pk.roles || []) if (r.id === "admin") throw new Error("الحزمة لا يجوز أن تحمل دور مدير النظام");
-  up(DB.camps, pk.camps, "id"); up(DB.roles, pk.roles, "id"); up(DB.users, (pk.users || []).filter(u => u.roleId !== "admin"), "id");
+  if (pk.v !== 2 || !pk.sig || !pk.org) throw new Error("حزمة قديمة بلا توقيع المؤسسة. اطلب من مدير النظام حزمة جديدة من الإصدار الحالي");
+  if (!subtleOK()) throw new Error("هذا المتصفح لا يدعم التحقق من توقيع الحزمة (افتح التطبيق من ملف محلي أو رابط https)");
+  const { sig, ...body } = pk; let good = false; try { good = await verifyBody(body, sig, pk.org); } catch (e) { }
+  if (!good) throw new Error("توقيع الحزمة غير صحيح: الملف تغيّر أو لم يصدر من مدير النظام");
+  const fp = await orgFp(pk.org), pinned = DB.meta.org;
+  if (pinned) { if (pinned.pub !== pk.org) throw new Error("الحزمة من مؤسسة أخرى (بصمة " + fmtFp(fp) + ") وليست مؤسسة هذا الجهاز"); }
+  else { const t = String(code || "").replace(/[\s-]/g, "").toUpperCase(); if (t.length !== 12 || !fp.startsWith(t)) throw new Error("رمز المؤسسة غير مطابق لهذه الحزمة. تأكد من الرمز مع مدير النظام (الحزمة قد لا تكون منه)"); }
+  if (typeof pk.rev !== "number" || pk.rev < (DB.meta.packRev || 0)) throw new Error("هذه حزمة أقدم من حزمة سبق استيرادها (قد تعيد صلاحيات أُلغيت)");
+  const c = cleanPack(body), up = (arr, items) => { for (const it of items) { const i = arr.findIndex(x => x.id === it.id); if (i < 0) arr.push(it); else if (arr[i].system) continue; else if ((it.ua || it.ca || 1) >= (arr[i].ua || arr[i].ca || 0)) arr[i] = { ...arr[i], ...it }; } };
+  const fieldDevice = !DB.users.some(u => u.roleId === "admin"); let revoked = 0;
+  up(DB.camps, c.camps); for (const r of c.roles) { const i = DB.roles.findIndex(x => x.id === r.id); if (i < 0) DB.roles.push(r); else DB.roles[i] = { ...DB.roles[i], ...r }; } up(DB.users, c.users);
+  if (fieldDevice) for (const u of DB.users) if (u.roleId !== "admin" && !c.users.some(x => x.id === u.id) && u.active !== false) { u.active = false; revoked++; }
   if (!DB.roles.some(r => r.id === "admin")) DB.roles.unshift(DEFAULT_ROLES()[0]);
-  DB.deviceId = DB.deviceId || uid(); if (pk.cc) DB.meta.cc = pk.cc; save(); return { users: (pk.users || []).length, camps: (pk.camps || []).length };
+  DB.deviceId = DB.deviceId || uid(); if (pk.cc === "970" || pk.cc === "972") DB.meta.cc = pk.cc; DB.meta.org = { pub: pk.org, fp }; DB.meta.packRev = pk.rev; if (c.brand) DB.meta.brand = c.brand; if (c.rules) DB.meta.rules = c.rules; if (c.enc && !DB.meta.vaults) DB.meta.vaultsPending = true;
+  audit("pack_import", `رقم ${pk.rev} • ${c.users.length} مستخدم`, ""); save(); if (!(await commit())) throw new Error("لم تُحفظ الحزمة على الجهاز"); return { users: c.users.length, camps: c.camps.length, revoked };
 }
+const importPackObj = importPack;
 
+/* ---------- administrator accounts backup: what is needed to rebuild the administrator device (accounts, roles, camps, organisation key, wrapped keys). No records inside. ---------- */
+async function exportAdminAcct() {
+  if (!isAdmin()) return toast("لمدير النظام فقط"); if (!(await reauth("لنسخ حسابات المدير أدخل كلمة مرورك"))) return;
+  const acct = pubOf(DB); const sum = await sha256hex(U8(JSON.stringify(acct))), name = `admin_accounts_${stamp()}.json`;
+  dl(U8(JSON.stringify({ type: "camp-admin-acct", v: 1, at: Date.now(), by: me().username, sha256: sum, acct })), name, "application/json"); DB.meta.lastAcctBackup = Date.now(); audit("acct_backup", name, ""); save(); await commit("✅ نُزّلت نسخة حسابات المدير — احتفظ بها مع رمز الاسترداد في مكان آمن");
+}
+async function doRestoreAcct() {
+  const f = $("#acctfile").files[0]; if (!f) return toast("اختر الملف أولاً");
+  try {
+    if (FIELD_BUILD || DB.users.length) throw new Error("لا تُستعاد الحسابات إلا على جهاز مدير نظام فارغ");
+    const o = JSON.parse(await f.text()); if (!o || o.type !== "camp-admin-acct" || !o.acct || !Array.isArray(o.acct.users)) throw new Error("ليس ملف حسابات مدير");
+    if ((await sha256hex(U8(JSON.stringify(o.acct)))) !== o.sha256) throw new Error("فشل فحص السلامة: الملف تغيّر أو تالف"); if (!o.acct.users.some(u => u.roleId === "admin")) throw new Error("لا يحوي حساب مدير");
+    if ((o.acct.schema || 0) > SCHEMA) throw new Error("ملف من إصدار أحدث");
+    const keep = DB.deviceId; DB = { ...DB, ...o.acct, people: [], audit: [], auditExt: [], imports: [], meta: { ...DB.meta, ...o.acct.meta } }; DB.deviceId = keep || DB.deviceId; DBV++; audit("acct_restore", o.by || "", ""); save(); if (!(await commit())) throw new Error("لم تُحفظ الحسابات"); toast("تمت استعادة الحسابات. سجّل الدخول بكلمة مرورك (أو استعد بالرمز)، ثم استورد نسخة بيانات."); go("login");
+  } catch (e) { toast("فشلت الاستعادة: " + e.message); }
+}
 /* ---------- menu ---------- */
 function viewMenu() {
   const it = (ic, t, f, ok = true) => ok ? `<div class="mem" onclick="${f}"><div class="t"><b>${ic} ${t}</b></div></div>` : "";
   $("#view").innerHTML = `<div class="card">${it("📤", "تصدير / نسخة احتياطية / استيراد", "go('data')", can("export.sheet1") || can("backup.make") || can("import.data"))}
    ${it("⚠", "قائمة المشاكل", "go('quality')", can("report.view"))}${it("🗑", "المحذوفات", "go('trash')", can("person.restore") || can("person.delete.own"))}
-   ${it("👥", "المستخدمون (الموظفون)", "go('users')", can("user.manage"))}${it("🔑", "الأدوار والصلاحيات", "go('roles')", can("role.manage"))}${it("⛺", "المخيمات", "go('camps')", can("camp.manage"))}
+   ${it("👥", "المستخدمون (الموظفون)", "go('users')", can("user.manage"))}${it("🔑", "الأدوار والصلاحيات", "go('roles')", can("role.manage"))}${it("⛺", "المخيمات", "go('camps')", can("camp.manage"))}${it("🎨", "هوية البرنامج وقواعد التحقق", "go('brand')", isAdmin())}
    ${it("📜", "سجل التدقيق", "go('audit')", can("audit.view"))}${it("👤", "حسابي وكلمة المرور", "go('account')")}${it("🚪", "تسجيل الخروج", "logout()")}</div>`;
   setBar(`<button class="btn sec" onclick="go('home')">رجوع</button>`);
 }
@@ -587,8 +941,9 @@ function viewUsers() {
      <div class="row" style="margin-top:6px">${u.phone ? `<a class="btn sec small" href="tel:${esc(u.phone)}">📞 ${esc(u.phone)}</a>` : ""}${wa ? `<a class="btn sec small" target="_blank" href="https://wa.me/${intl(wa)}">💬 واتساب</a>` : ""}${u.email ? `<a class="btn sec small" href="mailto:${esc(u.email)}">✉ بريد</a>` : ""}</div></div>
      <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">${u.active === false ? '<span class="badge b-e">موقوف</span>' : '<span class="badge b-ok">فعّال</span>'}${canManageUser(u) || (isAdmin()) ? `<button class="btn small sec" onclick="go('userform',{id:'${u.id}'})">تعديل</button>` : ""}</div></div>`;
   }).join("");
-  $("#view").innerHTML = `<div class="card"><b>المستخدمون (${DB.users.length})</b><div class="hint">الجوال والواتساب والبريد للتواصل مع الموظفين. «حزمة الحسابات» تنقل الحسابات إلى أجهزة الباحثين بلا إنترنت.</div></div>${rows || '<div class="card hint">لا يوجد مستخدمون ضمن صلاحيتك.</div>'}`;
-  setBar(`<button class="btn gold" onclick="go('userform',{id:null})">＋ مستخدم</button><button class="btn sec" onclick="exportPack()">📦 حزمة الحسابات</button><button class="btn sec" onclick="go('menu')">رجوع</button>`);
+  const org = DB.meta.org;
+  $("#view").innerHTML = `${isAdmin() && !DB.meta.lastAcctBackup ? '<div class="banner">⚠ لم تأخذ «نسخة حسابات المدير» بعد. بدونها، إن ضاع هذا الجهاز تضيع الحسابات ومفتاح المؤسسة وتحتاج كل الأجهزة الميدانية إلى إعادة إعداد.</div>' : ""}${isAdmin() ? (org ? `<div class="banner"><b>رمز المؤسسة:</b> <span class="num" style="font-size:18px;font-weight:700">${esc(orgCode(org.fp))}</span> • بصمة المفتاح ${esc(fmtFp(org.fp))} • رقم آخر حزمة: ${DB.meta.packRev || 0}<br>أعطِ الرمز لموظفيك منفصلاً عن الحزمة؛ يُطلب مرة واحدة على كل جهاز جديد.</div>` : '<div class="banner">⚠ لا يوجد مفتاح مؤسسة بعد؛ سيُنشأ عند أول تصدير لحزمة الحسابات.</div>') : ""}<div class="card"><b>المستخدمون (${DB.users.length})</b><div class="hint">الجوال والواتساب والبريد للتواصل مع الموظفين. «حزمة الحسابات» تنقل الحسابات إلى أجهزة الباحثين بلا إنترنت.</div></div>${rows || '<div class="card hint">لا يوجد مستخدمون ضمن صلاحيتك.</div>'}`;
+  setBar(`<button class="btn gold" onclick="go('userform',{id:null})">＋ مستخدم</button><button class="btn sec" onclick="exportPack()">📦 حزمة الحسابات</button>${isAdmin() ? '<button class="btn sec" onclick="exportAdminAcct()">🗄 نسخة حسابات المدير</button>' : ""}<button class="btn sec" onclick="go('menu')">رجوع</button>`);
 }
 function viewUserForm() {
   const a = VIEW.arg || {}; let u = VIEW.du;
@@ -596,11 +951,11 @@ function viewUserForm() {
   if (a.id && !canManageUser(u) && !isAdmin()) return go("users");
   const roles = assignableRoles(), campList = myCamps(), locSet = [...new Set(campList.filter(c => u.camps.includes(c.id)).flatMap(c => c.locs))].filter(c => isAdmin() || !(me().locs || []).length || me().locs.includes(c));
   $("#view").innerHTML = `<div class="card"><b>${a.id ? "تعديل مستخدم" : "مستخدم جديد"}</b></div><div class="card"><div class="grid" id="uf">
-   ${fieldHtml("u_name", "الاسم الكامل", 'data-k="name"', u.name)}${fieldHtml("u_user", "اسم المستخدم (لاتيني)", `data-k="username" dir="ltr" autocapitalize="none" ${a.id ? "readonly" : ""}`, u.username, "text", "num")}
+   ${fieldHtml("u_name", "الاسم الكامل", 'data-k="name" data-lang="ar"', u.name)}${fieldHtml("u_user", "اسم المستخدم (لاتيني)", `data-k="username" data-lang="en" data-case="lower" dir="ltr" autocapitalize="none" ${a.id ? "readonly" : ""}`, u.username, "text", "num")}
    ${fieldHtml("u_pw", a.id ? "كلمة مرور جديدة (اتركها فارغة لعدم التغيير)" : "كلمة المرور (8 أحرف فأكثر)", 'data-k="newPw" autocomplete="new-password"', "", "password")}
    <div><label>الدور</label><select data-k="roleId">${roles.map(r => `<option value="${r.id}"${r.id === u.roleId ? " selected" : ""}>${esc(r.name)}</option>`).join("")}</select></div>
-   ${fieldHtml("u_phone", "الجوال", 'data-k="phone" inputmode="tel"', u.phone, "text", "num")}${fieldHtml("u_wa", "واتساب (فارغ = نفس الجوال)", 'data-k="wa" inputmode="tel"', u.wa, "text", "num")}
-   <div class="full">${fieldHtml("u_mail", "البريد الإلكتروني", 'data-k="email" dir="ltr"', u.email, "email", "num")}</div>
+   ${fieldHtml("u_phone", "الجوال", 'data-k="phone" inputmode="tel" data-num="p" placeholder="059… أو +970…"', u.phone, "text", "num")}${fieldHtml("u_wa", "واتساب (فارغ = نفس الجوال)", 'data-k="wa" inputmode="tel" data-num="p" placeholder="+970… أو +972…"', u.wa, "text", "num")}
+   <div class="full">${fieldHtml("u_mail", "البريد الإلكتروني", 'data-k="email" dir="ltr" data-lang="en" data-case="lower"', u.email, "email", "num")}</div>
    <div class="full"><label>المخيمات المسموحة</label><div>${campList.map(c => `<label style="display:flex;gap:8px;align-items:center;margin:4px 0;color:var(--txt);font-size:15px"><input type="checkbox" style="width:22px;min-height:22px" data-camp="${c.id}"${u.camps.includes(c.id) ? " checked" : ""}> ${esc(c.name)}</label>`).join("") || '<span class="hint">أنشئ مخيماً أولاً</span>'}</div></div>
    <div class="full"><label>التجمعات المسموحة (اتركها كلها بلا تحديد = كل تجمعات المخيم)</label><div style="max-height:170px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px">${locSet.map(c => `<label style="display:flex;gap:8px;align-items:center;margin:3px 0;color:var(--txt);font-size:15px"><input type="checkbox" style="width:22px;min-height:22px" data-loc="${c}"${u.locs.includes(c) ? " checked" : ""}> ${esc((L.loc[c] || {}).ar || c)} (${c})</label>`).join("") || '<span class="hint">اختر مخيماً</span>'}</div></div>
    ${fieldHtml("u_from", "صالح من (dd/mm/yyyy — اختياري)", 'data-k="from" inputmode="numeric" placeholder="01/11/2026"', u.from, "text", "num")}${fieldHtml("u_to", "صالح حتى (اختياري)", 'data-k="to" inputmode="numeric" placeholder="31/12/2026"', u.to, "text", "num")}
@@ -609,7 +964,7 @@ function viewUserForm() {
   setBar(`<button class="btn" onclick="saveUser()">حفظ</button><button class="btn sec" onclick="VIEW.du=null;go('users')">إلغاء</button>`);
 }
 function onUserInput(e) {
-  const t = e.target, u = VIEW.du;
+  const t = e.target, u = VIEW.du; if (!u) return;   // a late event from a form that is already gone
   if (t.dataset.k) { u[t.dataset.k] = t.value; if (t.dataset.k === "roleId") { /* nothing */ } }
   else if (t.dataset.camp !== undefined) { u.camps = t.checked ? [...new Set([...u.camps, t.dataset.camp])] : u.camps.filter(x => x !== t.dataset.camp); u.locs = []; const keep = VIEW.du; render(); VIEW.du = keep; }
   else if (t.dataset.loc !== undefined) { u.locs = t.checked ? [...new Set([...u.locs, t.dataset.loc])] : u.locs.filter(x => x !== t.dataset.loc); }
@@ -619,8 +974,9 @@ async function saveUser() {
   const u = VIEW.du, err = [], isNew = !u.id, un = (u.username || "").trim().toLowerCase();
   if (!(u.name || "").trim()) err.push("الاسم مطلوب"); if (!/^[A-Za-z0-9._-]{3,}$/.test(un)) err.push("اسم المستخدم: 3 أحرف أو أرقام لاتينية فأكثر");
   if (DB.users.some(x => x.username === un && x.id !== u.id)) err.push("اسم المستخدم مستخدم من قبل");
-  if (isNew && (u.newPw || "").length < 8) err.push("كلمة المرور أقل من 8 أحرف"); if (!isNew && u.newPw && u.newPw.length < 8) err.push("كلمة المرور الجديدة أقل من 8 أحرف");
-  if (u.phone && !phoneOK(u.phone)) err.push("الجوال: 9 أو 10 أرقام"); if (u.wa && !phoneOK(u.wa)) err.push("الواتساب: 9 أو 10 أرقام"); if (u.email && !emailOK(u.email)) err.push("البريد غير صحيح");
+  if (isNew || u.newPw) { const w = pwWeak(u.newPw || "", un); if (w) err.push(w); }
+  if (!isNew && u.newPw && (DB.users.find(x => x.id === u.id) || {}).roleId === "admin") err.push("كلمة مرور مدير النظام تُغيَّر من «حسابي» أو برمز الاسترداد");
+  if (u.phone && !phoneOK(u.phone)) err.push("الجوال: 059… أو +970… أو +972…"); if (u.wa && !phoneOK(u.wa)) err.push("الواتساب: 059… أو +970… أو +972…"); if (u.email && !emailOK(u.email)) err.push("البريد غير صحيح");
   if (u.from && !parseDob(u.from)) err.push("تاريخ البداية غير صالح"); if (u.to && !parseDob(u.to)) err.push("تاريخ النهاية غير صالح");
   if (u.roleId !== "admin" && !u.camps.length) err.push("اختر مخيماً واحداً على الأقل");
   if (!assignableRoles().some(r => r.id === u.roleId)) err.push("ليست لديك صلاحية إسناد هذا الدور");
@@ -629,9 +985,16 @@ async function saveUser() {
   if (u.id && u.id === me().id && u.active === false) err.push("لا يمكنك إيقاف حسابك");
   if (err.length) { $("#u_msg").innerHTML = err.map(e => `<li class="e">❌ ${esc(e)}</li>`).join(""); return; }
   const rec = { ...u, username: un, name: u.name.trim(), ua: Date.now() }; delete rec.newPw;
-  if (isNew) { rec.id = uid(); rec.ca = Date.now(); rec.pw = await hashPw(u.newPw); DB.users.push(rec); audit("user_create", un, roleName(rec.roleId)); }
-  else { const old = DB.users.find(x => x.id === u.id); rec.pw = u.newPw ? await hashPw(u.newPw) : old.pw; rec.rec = old.rec; Object.assign(old, rec); audit("user_edit", un, (u.newPw ? "كلمة مرور جديدة؛ " : "") + roleName(rec.roleId) + (rec.active === false ? "؛ موقوف" : "")); }
-  save(); VIEW.du = null; toast("تم الحفظ ✅"); go("users");
+  if ((DB.meta.vaults || DB.meta.vaultsPending) && subtleOK() && (isNew || u.newPw)) {   // the user's vault key is wrapped by the (temporary) password; administrators keep an escrow copy so a reset never loses data
+    const old = isNew ? null : DB.users.find(x => x.id === u.id); let dek = null;
+    if (old && old.ve && VAULT && VAULT.okek) { try { dek = await openDek(VAULT.okek, old.ve); } catch (e) { } }
+    if (!dek && old && (old.vk || old.kr) && !(await uiConfirm("لا يوجد مفتاح استرداد لخزنة هذا المستخدم. إعادة تعيين كلمة مروره ستجعل بياناته المشفّرة على جهازه غير قابلة للفتح (تبقى نسخه الاحتياطية صالحة).", { icon: "warning", danger: true, title: "تحذير", ok: "متابعة رغم ذلك" }))) return;
+    if (!dek) dek = rnd(32);
+    rec.vk = await wrapKey(dek, u.newPw); rec.vkv = ((old && old.vkv) || 0) + 1; if (VAULT && VAULT.okek) rec.ve = await sealDek(VAULT.okek, dek); else if (old && old.ve) rec.ve = old.ve;
+  }
+  if (isNew) { rec.id = uid(); rec.ca = Date.now(); rec.pw = await hashPw(u.newPw); rec.pwv = 0; rec.mustChange = true; DB.users.push(rec); audit("user_create", un, roleName(rec.roleId)); }
+  else { const old = DB.users.find(x => x.id === u.id); rec.pw = u.newPw ? await hashPw(u.newPw) : old.pw; rec.rec = old.rec; rec.sk = old.sk; rec.sk2 = old.sk2; rec.pwv = (old.pwv || 0) + (u.newPw || (rec.active === false && old.active !== false) || rec.roleId !== old.roleId ? 1 : 0); rec.mustChange = u.newPw ? true : !!old.mustChange; Object.assign(old, rec); audit("user_edit", un, (u.newPw ? "كلمة مرور جديدة؛ " : "") + roleName(rec.roleId) + (rec.active === false ? "؛ موقوف" : "")); }
+  save(); VIEW.du = null; const sendW = (isNew || u.newPw) ? { name: rec.name, username: un, pw: u.newPw, wa: rec.wa, phone: rec.phone, email: rec.email } : null; await commit("تم الحفظ ✅"); sendW ? go("welcome", sendW) : go("users");
 }
 
 /* ---------- roles ---------- */
@@ -648,11 +1011,14 @@ function viewRoleForm() {
 }
 function togglePerm(k, on) { const r = VIEW.dr; r.perms = on ? [...new Set([...r.perms, k])] : r.perms.filter(x => x !== k); }
 function saveRole() {
-  const r = VIEW.dr; if (!(r.name || "").trim()) return toast("اسم الدور مطلوب"); if (DB.roles.some(x => x.name === r.name.trim() && x.id !== r.id)) return toast("اسم الدور مستخدم");
+  if (!can("role.manage")) return toast("ليست لديك صلاحية إدارة الأدوار");
+  const r = VIEW.dr; if (!r) return; if (!Array.isArray(r.perms) || r.perms.some(p => !ALLP.includes(p))) return toast("صلاحيات غير معروفة"); if ((r.name || "").length > 60) return toast("اسم الدور طويل");
+  const ex = r.id ? DB.roles.find(x => x.id === r.id) : null; if (r.id && !ex) return toast("الدور غير موجود"); if (ex && ex.system) return toast("دور النظام لا يُعدَّل");
+  if (!isAdmin() && (r.perms.some(p => !myRole().perms.includes(p)) || (ex && ex.perms.some(p => !myRole().perms.includes(p))))) return toast("لا يجوز منح صلاحية لا تملكها أنت"); if (!(r.name || "").trim()) return toast("اسم الدور مطلوب"); if (DB.roles.some(x => x.name === r.name.trim() && x.id !== r.id)) return toast("اسم الدور مستخدم");
   if (r.id) { Object.assign(DB.roles.find(x => x.id === r.id), { name: r.name.trim(), perms: r.perms }); audit("role_edit", r.name, r.perms.length + " صلاحية"); } else { DB.roles.push({ id: uid(), name: r.name.trim(), perms: r.perms }); audit("role_create", r.name, r.perms.length + " صلاحية"); }
-  save(); VIEW.dr = null; toast("تم الحفظ ✅"); go("roles");
+  save(); VIEW.dr = null; commit("تم الحفظ ✅"); go("roles");
 }
-function delRole() { const r = VIEW.dr; if (DB.users.some(u => u.roleId === r.id)) return toast("لا يمكن حذف دور له مستخدمون"); if (!confirm("حذف هذا الدور؟")) return; DB.roles = DB.roles.filter(x => x.id !== r.id); audit("role_delete", r.name, ""); save(); VIEW.dr = null; go("roles"); }
+async function delRole() { const r = VIEW.dr; if (!can("role.manage") || !r || !r.id) return toast("ليست لديك صلاحية"); const ex = DB.roles.find(x => x.id === r.id); if (!ex || ex.system) return toast("دور النظام لا يُحذف"); if (!isAdmin() && ex.perms.some(p => !myRole().perms.includes(p))) return toast("دور أعلى من صلاحياتك"); if (DB.users.some(u => u.roleId === r.id)) return toast("لا يمكن حذف دور له مستخدمون"); if (!(await uiConfirm("حذف هذا الدور؟", { icon: "warning", danger: true, ok: "حذف" }))) return; DB.roles = DB.roles.filter(x => x.id !== r.id); audit("role_delete", r.name, ""); save(); commit(); VIEW.dr = null; go("roles"); }
 
 /* ---------- camps ---------- */
 function viewCamps() {
@@ -662,7 +1028,7 @@ function viewCamps() {
 function viewCampForm() {
   const a = VIEW.arg || {}; let c = VIEW.dc; if (!c) { const ex = a.id ? DB.camps.find(x => x.id === a.id) : null; c = VIEW.dc = ex ? JSON.parse(JSON.stringify(ex)) : { id: null, name: "", gov: DB.meta.defGov || "65", locs: [] }; }
   const list = LK.loc.filter(x => x.c.startsWith(c.gov) || (c.gov === "40" && x.c.startsWith("41"))), q = (VIEW.lq || "").trim();
-  $("#view").innerHTML = `<div class="card"><b>${a.id ? "تعديل مخيم" : "مخيم جديد"}</b><div class="grid" style="margin-top:8px">${fieldHtml("c_name", "اسم المخيم", 'oninput="VIEW.dc.name=this.value"', c.name)}
+  $("#view").innerHTML = `<div class="card"><b>${a.id ? "تعديل مخيم" : "مخيم جديد"}</b><div class="grid" style="margin-top:8px">${fieldHtml("c_name", "اسم المخيم", 'data-lang="ar" oninput="VIEW.dc.name=this.value"', c.name)}
    <div><label>المحافظة</label><select onchange="VIEW.dc.gov=this.value;VIEW.dc.locs=[];render()">${opt(LK.gov, c.gov)}</select></div>
    <div class="full"><label>التجمعات السكانية (اختر واحداً أو أكثر)</label><input placeholder="🔍 بحث" value="${esc(VIEW.lq || "")}" oninput="VIEW.lq=this.value;renderLocList()"><div id="loclist" style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px;margin-top:6px"></div></div></div></div><ul class="msgs" id="c_msg"></ul>`;
   renderLocList(); setBar(`<button class="btn" onclick="saveCamp()">حفظ</button><button class="btn sec" onclick="VIEW.dc=null;go('camps')">إلغاء</button>`);
@@ -673,78 +1039,118 @@ function renderLocList() {
 }
 function togglLoc(k, on) { const c = VIEW.dc; c.locs = on ? [...new Set([...c.locs, k])] : c.locs.filter(x => x !== k); }
 function saveCamp() {
-  const c = VIEW.dc, err = []; if (!(c.name || "").trim()) err.push("اسم المخيم مطلوب"); if (!L.gov[c.gov]) err.push("اختر المحافظة"); if (!c.locs.length) err.push("اختر تجمعاً واحداً على الأقل");
+  if (!can("camp.manage")) return toast("ليست لديك صلاحية إدارة المخيمات");
+  const c = VIEW.dc, err = []; if (!c) return; if (c.id && !DB.camps.some(x => x.id === c.id)) return toast("المخيم غير موجود"); if (c.id && !isAdmin() && !(me().camps || []).includes(c.id)) return toast("مخيم خارج نطاقك"); if ((c.name || "").length > 80) return toast("اسم المخيم طويل"); if ((c.locs || []).some(x => !L.loc[x])) return toast("تجمع غير معروف"); if (!(c.name || "").trim()) err.push("اسم المخيم مطلوب"); if (!L.gov[c.gov]) err.push("اختر المحافظة"); if (!c.locs.length) err.push("اختر تجمعاً واحداً على الأقل");
   if (err.length) { $("#c_msg").innerHTML = err.map(e => `<li class="e">❌ ${esc(e)}</li>`).join(""); return; }
-  if (c.id) { Object.assign(DB.camps.find(x => x.id === c.id), { name: c.name.trim(), gov: c.gov, locs: c.locs }); audit("camp_edit", c.name, ""); } else { DB.camps.push({ id: uid(), name: c.name.trim(), gov: c.gov, locs: c.locs }); audit("camp_create", c.name, ""); }
-  save(); VIEW.dc = null; toast("تم الحفظ ✅"); go("camps");
+  if (c.id) { Object.assign(DB.camps.find(x => x.id === c.id), { name: c.name.trim(), gov: c.gov, locs: c.locs }); audit("camp_edit", c.name, ""); } else { const nc = { id: uid(), name: c.name.trim(), gov: c.gov, locs: c.locs }; DB.camps.push(nc); if (!isAdmin()) { me().camps = [...(me().camps || []), nc.id]; } audit("camp_create", c.name, ""); }
+  save(); VIEW.dc = null; commit("تم الحفظ ✅"); go("camps");
 }
 
 /* ---------- audit, trash, account ---------- */
 function viewAudit() {
   if (VIEW.arg && VIEW.arg.sens) VIEW.sens = true;
-  const bad = verifyAudit(), ext = (DB.auditExt || []).length;
+  const bad = verifyAudit(), ext = (DB.auditExt || []).length, all = allAudit(), users = [...new Set(all.map(e => e.un).filter(Boolean))].sort(), acts = [...new Set(all.map(e => e.a))].sort();
   $("#view").innerHTML = `<div class="card"><b>سجل التدقيق</b>
-   <div class="${bad < 0 ? "hint" : "banner"}" style="margin-top:6px">${bad < 0 ? "✅ سلامة السجل المحلي: لم يُعبث به (سلسلة تجزئة)" : "❌ تم التلاعب بالسجل المحلي عند الإدخال رقم " + (bad + 1)}${ext ? ` • ${ext} إدخال وارد من أجهزة أخرى` : ""}</div>
-   <div class="row" style="margin-top:8px"><input style="flex:1;min-width:180px" placeholder="🔍 بحث بالمستخدم أو الإجراء" value="${esc(VIEW.aq || "")}" oninput="VIEW.aq=this.value;viewAuditList()">
-   <label style="display:flex;gap:6px;align-items:center;color:var(--txt);font-size:15px"><input type="checkbox" style="width:22px;min-height:22px" ${VIEW.sens ? "checked" : ""} onchange="VIEW.sens=this.checked;viewAuditList()"> الحساس فقط</label></div></div><div class="card" id="alist"></div>`; viewAuditList();
+   <div class="${bad < 0 ? "hint" : "banner"}" style="margin-top:6px">${bad < 0 && verifyDevAudit() < 0 ? "✅ سلامة السجل المحلي: لم يُعبث به (سلسلة تجزئة)" : "❌ تم التلاعب بالسجل المحلي عند الإدخال رقم " + (bad < 0 ? verifyDevAudit() + 1 : bad + 1)}${ext ? ` • ${ext} إدخال وارد من أجهزة أخرى` : ""}<br><small>هذا السجل مخزّن على الجهاز نفسه: يكشف العبث العادي لكن لا يمنع من يتحكم بالجهاز من حذفه كله.${isAdmin() ? "" : " ترى الإجراءات ضمن مخيماتك فقط."}</small></div>
+   <div class="grid" style="margin-top:8px"><input placeholder="🔍 بحث في الإجراء أو التفصيل" value="${esc(VIEW.aq || "")}" oninput="VIEW.aq=this.value;VIEW.ashown=0;clearTimeout(window.__at);window.__at=setTimeout(viewAuditList,150)">
+   <select onchange="VIEW.au=this.value;VIEW.ashown=0;viewAuditList()"><option value="">كل المستخدمين</option>${users.map(u => `<option${VIEW.au === u ? " selected" : ""}>${esc(u)}</option>`).join("")}</select>
+   <select onchange="VIEW.aa=this.value;VIEW.ashown=0;viewAuditList()"><option value="">كل الإجراءات</option>${acts.map(u => `<option${VIEW.aa === u ? " selected" : ""}>${esc(u)}</option>`).join("")}</select>
+   <div class="row"><input type="date" style="flex:1" value="${esc(VIEW.ad1 || "")}" onchange="VIEW.ad1=this.value;VIEW.ashown=0;viewAuditList()"><input type="date" style="flex:1" value="${esc(VIEW.ad2 || "")}" onchange="VIEW.ad2=this.value;VIEW.ashown=0;viewAuditList()"></div>
+   <label style="display:flex;gap:6px;align-items:center;color:var(--txt);font-size:15px"><input type="checkbox" style="width:22px;min-height:22px" ${VIEW.sens ? "checked" : ""} onchange="VIEW.sens=this.checked;VIEW.ashown=0;viewAuditList()"> الحساس فقط</label></div></div><div class="card" id="alist"></div>`; viewAuditList();
   setBar(`<button class="btn sec" onclick="go('menu')">رجوع</button>`);
 }
 function viewAuditList() {
-  const q = (VIEW.aq || "").trim(), rows = allAudit().filter(a => (!VIEW.sens || a.s) && (!q || ((a.un || "") + a.a + (a.g || "") + (a.d || "")).includes(q))).slice(0, 300), fmt = (t) => new Date(t).toLocaleString("en-GB", { hour12: false }).replace(",", "");
-  $("#alist").innerHTML = rows.length ? `<table class="t"><tr><th>الوقت</th><th>المستخدم</th><th>الإجراء</th><th>التفصيل</th></tr>${rows.map(a => `<tr${a.s ? ' style="background:#fff7e0"' : ""}><td class="num">${fmt(a.t)}</td><td class="num">${esc(a.un || "—")}${a.ext ? ' <span class="badge b-w">جهاز آخر</span>' : ""}</td><td>${esc(a.a)}</td><td>${esc((a.g || "") + (a.d ? " — " + a.d : ""))}</td></tr>`).join("")}</table>` : '<span class="hint">لا يوجد</span>';
+  const q = (VIEW.aq || "").trim(), d1 = VIEW.ad1 ? new Date(VIEW.ad1 + "T00:00:00").getTime() : 0, d2 = VIEW.ad2 ? new Date(VIEW.ad2 + "T23:59:59").getTime() : 1e15, fmt = (t) => new Date(t).toLocaleString("en-GB", { hour12: false }).replace(",", "");
+  const rows = allAudit().filter(a => (!VIEW.sens || a.s) && (!VIEW.au || a.un === VIEW.au) && (!VIEW.aa || a.a === VIEW.aa) && a.t >= d1 && a.t <= d2 && (!q || ((a.un || "") + a.a + (a.g || "") + (a.d || "")).includes(q))), n = VIEW.ashown || 50;
+  $("#alist").innerHTML = rows.length ? `<div class="hint">${rows.length} إدخال</div><div style="overflow-x:auto"><table class="t"><tr><th>الوقت</th><th>المستخدم</th><th>الإجراء</th><th>التفصيل</th></tr>${rows.slice(0, n).map(a => `<tr${a.s ? ' style="background:#fff7e0"' : ""}><td class="num">${fmt(a.t)}</td><td class="num">${esc(a.un || "—")}${a.ext ? ' <span class="badge b-w">جهاز آخر</span>' : ""}</td><td>${esc(a.a)}</td><td>${esc((a.g || "") + (a.d ? " — " + a.d : ""))}</td></tr>`).join("")}</table></div>${rows.length > n ? `<button class="btn small sec" style="margin-top:8px" onclick="VIEW.ashown=${n + 50};viewAuditList()">عرض المزيد (${rows.length - n})</button>` : ""}` : '<span class="hint">لا يوجد</span>';
 }
 function viewTrash() {
-  const rows = DB.people.filter(p => p.deleted && inScope(p) && (can("person.view.any") || p.cb === me().id));
+  const rows = DB.people.filter(p => p.deleted && inScope(p) && (can("person.view.any") || p.cb === me().id)).sort((a, b) => b.deleted.at - a.deleted.at).slice(0, 200);
   $("#view").innerHTML = `<div class="card"><b>المحذوفات (${rows.length})</b><div class="hint">الحذف «ناعم»: السجل يبقى ويُمنع رجوعه عند الدمج. الاسترجاع بصلاحية خاصة.</div></div>` + rows.map(p => `<div class="fam" style="cursor:default"><div class="t"><b>${esc(fullName(p))}</b><span>${esc(p.id)} • حذفه ${esc((DB.users.find(u => u.id === p.deleted.by) || {}).name || "؟")} • «${esc(p.deleted.reason || "")}»</span></div>${can("person.restore") ? `<button class="btn small sec" onclick="restorePerson('${p.uid}')">استرجاع</button>` : ""}</div>`).join("");
   setBar(`<button class="btn sec" onclick="go('menu')">رجوع</button>`);
 }
-function restorePerson(u) { const p = DB.people.find(x => x.uid === u); if (live().some(x => x.id === p.id)) return toast("يوجد سجل بنفس رقم الوثيقة، لا يمكن الاسترجاع"); p.deleted = null; p.ub = me().id; p.ua = Date.now(); audit("person_restore", p.id, fullName(p)); save(); toast("تم الاسترجاع ✅"); render(); }
+function restorePerson(u) { const p = DB.people.find(x => x.uid === u); if (!p || !can("person.restore") || !inScopeOrAdmin(p)) return toast("ليست لديك صلاحية الاسترجاع"); if (live().some(x => x.id === p.id)) return toast("يوجد سجل بنفس رقم الوثيقة، لا يمكن الاسترجاع"); p.deleted = null; p.ub = me().id; p.ua = Date.now(); audit("person_restore", p.id, fullName(p), p.campId); save(); commit("تم الاسترجاع ✅"); render(); }
 function viewAccount() {
   $("#view").innerHTML = `<div class="card"><b>حسابي</b><div class="hint">${esc(me().name)} • @${esc(me().username)} • ${esc(roleName(me().roleId))}</div></div><div class="card"><b>تغيير كلمة المرور</b><div class="grid" style="margin-top:8px">
-   ${fieldHtml("a_old", "كلمة المرور الحالية", 'autocomplete="current-password"', "", "password")}${fieldHtml("a_new", "الجديدة (8 أحرف فأكثر)", 'autocomplete="new-password"', "", "password")}${fieldHtml("a_new2", "تأكيد الجديدة", "", "", "password")}</div><ul class="msgs" id="a_msg"></ul></div>`;
+   ${fieldHtml("a_old", "كلمة المرور الحالية", 'autocomplete="current-password"', "", "password")}${fieldHtml("a_new", "الجديدة (8 أحرف فأكثر)", 'autocomplete="new-password"', "", "password")}${fieldHtml("a_new2", "تأكيد الجديدة", "", "", "password")}</div><ul class="msgs" id="a_msg"></ul></div>
+  <div class="card"><b>🔒 تشفير بيانات الجهاز</b><div class="hint" style="margin-top:4px">${DB.meta.vaults ? `مفعّل: سجلات الأسر وسجل التدقيق والملاحظات ومسوداتك مشفّرة (AES-256-GCM) بمفتاح مرتبط بكلمة مرورك. ${me().kr ? "رمز الاسترداد يفتح الخزنة إن نسيت كلمة المرور." : me().ve ? "" : "إن نسيت كلمة المرور فلا استرداد إلا من النسخ الاحتياطية."}` : `غير مفعّل: البيانات على هذا الجهاز مقروءة لمن يصل إلى ملفات المتصفح.`}</div>${DB.meta.vaults ? "" : '<div class="row" style="margin-top:8px"><button class="btn small gold" onclick="enableEncryption()">تفعيل التشفير</button></div>'}</div>${isAdmin() ? '<div class="card"><b>🔑 رمز الاسترداد</b><div class="hint" style="margin-top:4px">ضاع الرمز؟ (وأنت تذكر كلمة مرورك) أنشئ رمزاً جديداً؛ يتوقف القديم.</div><div class="row" style="margin-top:8px"><button class="btn small sec" onclick="regenRecovery()">إنشاء رمز استرداد جديد</button></div></div>' : ""}`;
   setBar(`<button class="btn" onclick="changePw()">تغيير</button><button class="btn sec" onclick="go('menu')">رجوع</button>`);
 }
 async function changePw() {
-  const m = (t) => { $("#a_msg").innerHTML = `<li class="e">❌ ${esc(t)}</li>`; }, u = me();
-  if (!(await checkPw($("#a_old").value || "", u.pw))) return m("كلمة المرور الحالية غير صحيحة"); if (($("#a_new").value || "").length < 8) return m("الجديدة أقل من 8 أحرف"); if ($("#a_new").value !== $("#a_new2").value) return m("التأكيد لا يطابق");
-  u.pw = await hashPw($("#a_new").value); u.ua = Date.now(); audit("password_change", u.username, ""); save(); toast("تم تغيير كلمة المرور ✅"); go("menu");
+  const m = (t) => { $("#a_msg").innerHTML = `<li class="e">❌ ${esc(t)}</li>`; }, u = me(), old = $("#a_old").value || "", nw = $("#a_new").value || "";
+  if (!(await checkPw(old, u.pw))) { audit("reauth_fail", "تغيير كلمة المرور", ""); return m("كلمة المرور الحالية غير صحيحة"); }
+  const weak = pwWeak(nw, u.username); if (weak) return m(weak); if (nw !== $("#a_new2").value) return m("التأكيد لا يطابق"); if (nw === old) return m("اختر كلمة مرور مختلفة عن الحالية");
+  if (u.sk && subtleOK()) { try { u.sk = await wrapKey(await unwrapKey(u.sk, old), nw); } catch (e) { return m("تعذّر تحديث مفتاح المؤسسة؛ لم تُغيَّر كلمة المرور"); } }
+  if (DB.meta.vaults && subtleOK()) { try { if (u.kr) u.kr = await wrapKey(await unwrapKey(u.kr, old), nw); else if (u.vk) u.vk = await wrapKey(await unwrapKey(u.vk, old), nw); } catch (e) { return m("تعذّر تحديث مفتاح الخزنة؛ لم تُغيَّر كلمة المرور"); } }
+  u.pw = await hashPw(nw); u.pwv = (u.pwv || 0) + 1; u.mustChange = false; u.ua = Date.now(); SESSION.pwv = u.pwv; audit("password_change", u.username, ""); save(); commit("تم تغيير كلمة المرور ✅"); go("menu");
 }
 
 /* ---------- data entry screens ---------- */
+/* ---- scope filters (UI convenience ON TOP of visible(), which enforces permissions on every call) ---- */
+let FLT = null;
+function flt() { if (!FLT) { try { FLT = JSON.parse(localStorage.getItem("camp_flt_" + (SESSION ? SESSION.uid : "")) || "{}"); } catch (e) { FLT = {}; } } return FLT; }
+function setFlt(k, v) { const f = flt(); f[k] = v; if (k === "gov") f.loc = ""; if (k === "gov" || k === "loc") { /* camp stays */ } VIEW.shown = 0; try { localStorage.setItem("camp_flt_" + SESSION.uid, JSON.stringify(f)); } catch (e) { } viewHome(validateAll()); }
+function inFlt(f, x) { return (!x.gov || f.head.gov === x.gov) && (!x.loc || f.head.loc === x.loc) && (!x.camp || f.head.campId === x.camp); }
+function scopeBar(fams) {
+  const f = flt(), cnt = (fn) => { const m = new Map(); for (const x of fams) { const k = fn(x); m.set(k, (m.get(k) || 0) + 1); } return m; };
+  const gm = cnt(x => x.head.gov), lm = cnt(x => (!f.gov || x.head.gov === f.gov) ? x.head.loc : null), cm = cnt(x => (!f.gov || x.head.gov === f.gov) && (!f.loc || x.head.loc === f.loc) ? x.head.campId : null);
+  const sel = (key, m, label, name) => m.size > 1 || f[key] ? `<div style="flex:1;min-width:130px"><label>${label}</label><select onchange="setFlt('${key}',this.value)"><option value="">الكل (${[...m.entries()].filter(e => e[0] != null).reduce((s, e) => s + e[1], 0)})</option>${[...m.entries()].filter(e => e[0]).sort((a, b) => name(a[0]).localeCompare(name(b[0]), "ar")).map(([k, n]) => `<option value="${esc(k)}"${f[key] === k ? " selected" : ""}>${esc(name(k))} (${n})</option>`).join("")}</select></div>` : "";
+  const html = sel("gov", gm, "المحافظة", k => (L.gov[k] || {}).ar || k) + sel("loc", lm, "التجمع", k => (L.loc[k] || {}).ar || k) + sel("camp", cm, "المخيم", k => (DB.camps.find(c => c.id === k) || {}).name || k);
+  return html ? `<div class="card row">${html}</div>` : "";
+}
 function viewHome(v) {
-  const fam = families(), mine = visible(), rep = can("report.view");
+  const all = families(), f = flt(), fam = all.filter(x => inFlt(x, f)), mine = [].concat(...fam.map(x => x.members)), rep = can("report.view");
   const err = mine.filter(p => status(v.get(p.uid) || []) === "E").length, warn = mine.filter(p => status(v.get(p.uid) || []) === "W").length;
   const old = DB.meta.lastBackup ? Math.floor((Date.now() - DB.meta.lastBackup) / 3600000) : null;
   $("#view").innerHTML = `
   ${(() => { if (!can("audit.view") || !SESSION.prev) return ""; const n = allAudit().filter(e => e.s && e.t > SESSION.prev && e.u !== me().id); return n.length ? `<div class="banner" onclick="go('audit',{sens:true})" style="cursor:pointer">🔔 ${n.length} إجراء حساس من مستخدمين آخرين منذ آخر دخول لك (مثل إضافة موظف أو تصدير). اضغط للمراجعة.</div>` : ""; })()}
-  ${mine.length && can("backup.make") && (old === null || old > 24) ? `<div class="banner">⚠ ${old === null ? "لم تؤخذ نسخة احتياطية بعد" : "آخر نسخة احتياطية قبل " + old + " ساعة"} — خذ نسخة من «المزيد ← تصدير / نسخة احتياطية».</div>` : ""}
+  ${DRAFT && DRAFT.u === me().id ? `<div class="draftbar">📝 لديك مسودة غير محفوظة (${esc(fullName(DRAFT.p) || DRAFT.p.id || "سجل جديد")}) من ${new Date(DRAFT.at).toLocaleString("ar")} <button class="btn small" onclick="resumeDraft()">استئناف</button> <button class="btn small sec" onclick="discardDraft()">تجاهل</button></div>` : ""}
+  ${(() => { if (!all.length || !can("backup.make")) return ""; const lb = DB.meta.lastBackup || 0, ch = visible().filter(p => (p.ua || p.ca || 0) > lb).length; if (lb && old <= 24 && ch < 20) return ""; return `<div class="banner">⚠ ${lb ? "آخر نسخة احتياطية قبل " + (old < 48 ? old + " ساعة" : Math.floor(old / 24) + " يوماً") : "لم تؤخذ نسخة احتياطية بعد"}${lb && ch ? " • " + ch + " سجل جديد/معدّل منذ ذلك الحين" : ""} — النسخة الاحتياطية خارج الجهاز هي الحماية الوحيدة من ضياع الجهاز أو مسح المتصفح. «المزيد ← تصدير / نسخة احتياطية».</div>`; })()}
+  ${scopeBar(all)}
   ${rep ? `<div class="stats"><div class="stat" style="background:#1f4e78"><b>${fam.length}</b><span>أسرة</span></div><div class="stat" style="background:#2e8b8b"><b>${mine.length}</b><span>فرد</span></div>
     <div class="stat" style="background:${err ? "#c00000" : "#548235"}"><b>${err}</b><span>سجل فيه خطأ</span></div><div class="stat" style="background:${warn ? "#bf8f00" : "#548235"}"><b>${warn}</b><span>سجل فيه تنبيه</span></div></div>
    <div class="card row sp"><div><b>${err ? "❌ يوجد " + err + " سجل فيه خطأ — صحّحه قبل التصدير" : mine.length ? "✅ لا توجد أخطاء" : "ابدأ بإضافة أسرة"}</b></div><button class="btn small sec" onclick="go('quality')">قائمة المشاكل</button></div>` : ""}
-  <div class="card"><input id="q" placeholder="🔍 بحث بالاسم أو رقم الهوية" value="${esc(VIEW.q || "")}" oninput="VIEW.q=this.value;viewHomeList()"></div><div id="flist"></div>`;
+  <div class="card"><input id="q" placeholder="🔍 بحث: الاسم أو رقم الهوية أو المخيم (الهمزات والمسافات لا تؤثر)" value="${esc(VIEW.q || "")}" oninput="VIEW.q=this.value;VIEW.shown=0;clearTimeout(window.__qt);window.__qt=setTimeout(viewHomeList,150)"></div><div id="flist"></div>`;
   viewHomeList();
   setBar(`${can("person.create") ? '<button class="btn gold" onclick="newFamily()">＋ أسرة جديدة</button>' : ""}<button class="btn sec" onclick="go('menu')">☰ المزيد</button>`);
 }
+const PAGE = 40;
 function viewHomeList() {
-  const v = VCACHE || validateAll(), fam = families(), q = (VIEW.q || "").trim();
-  const list = fam.filter(f => !q || f.members.some(p => fullName(p).includes(q) || (p.id || "").includes(q)));
-  $("#flist").innerHTML = list.length ? list.map(f => { const s = famStatus(f, v); return `<div class="fam" onclick="go('family','${esc(f.key)}')"><div class="t"><b>${esc(fullName(f.head))}</b><span>${f.members.length} فرد • ${esc(f.head.id)}</span></div>${badge(s)}</div>`; }).join("") : `<div class="card hint">لا توجد أسر${q ? " مطابقة" : " بعد"}.</div>`;
+  const v = VCACHE || validateAll(), f = flt(), toks = nrm(VIEW.q || "").split(" ").filter(Boolean);
+  const list = families().filter(x => inFlt(x, f) && (!toks.length || toks.every(t => famText(x).includes(t)))), n = VIEW.shown || PAGE, page = list.slice(0, n);
+  $("#flist").innerHTML = (list.length ? page.map(x => { const s = famStatus(x, v), c = campOf(x.head); return `<div class="fam" onclick="go('family','${esc(x.key)}')"><div class="t"><b>${esc(fullName(x.head))}</b><span>${x.members.length} فرد • ${esc(x.head.id)}${c && myCamps().length > 1 ? " • " + esc(c.name) : ""}</span></div>${badge(s)}</div>`; }).join("") : `<div class="card hint">لا توجد أسر${toks.length ? " مطابقة" : " بعد"}.</div>`)
+    + (list.length > n ? `<div class="card row sp"><span class="hint">يُعرض ${n} من ${list.length} أسرة</span><button class="btn small sec" onclick="VIEW.shown=${n + PAGE};viewHomeList()">عرض المزيد</button></div>` : list.length > PAGE ? `<div class="hint" style="text-align:center">عُرضت كل الأسر (${list.length})</div>` : "");
 }
 function newFamily() { if (!can("person.create")) return toast("ليست لديك صلاحية الإضافة"); go("form", { uid: null, rel: "1" }); }
 function viewFamily(v) {
   const f = families().find(x => x.key === VIEW.arg); if (!f) return go("home");
   const rows = f.members.map(p => { const iss = v.get(p.uid) || [], a = ageOf(parseDob(p.dob)), by = (DB.users.find(u => u.id === p.cb) || {}).name;
-    return `<div class="mem" onclick="go('form',{uid:'${p.uid}'})"><div class="t"><b>${esc(fullName(p))}</b><br><small>${esc((L.relation[p.rel] || {}).ar || "؟")} • ${esc((L.gender[p.sex] || {}).ar || "؟")} • ${a ?? "؟"} سنة • ${esc(p.id)}${by ? " • أدخله " + esc(by) : ""}</small></div>${badge(status(iss))}</div>`; }).join("");
+    return `<div class="mem" onclick="go('form',{uid:'${p.uid}'})"><div class="t"><b>${esc(fullName(p))}</b><br><small>${esc((L.relation[p.rel] || {}).ar || "؟")} • ${esc((L.gender[p.sex] || {}).ar || "؟")} • ${a ?? "؟"} سنة • ${esc(p.id)}${by ? " • أدخله " + esc(by) : ""}${notesOf(p).length ? " • 📝 " + notesOf(p).length : ""}</small></div>${badge(status(iss))}</div>`; }).join("");
   const canDelFam = f.members.every(canDelRec);
   $("#view").innerHTML = `<div class="card"><b>${esc(fullName(f.head))}</b><div class="hint">رقم الأسرة: ${esc(f.key)} • ${f.members.length} فرد • ${esc((L.gov[f.head.gov] || {}).ar || "")} / ${esc((L.loc[f.head.loc] || {}).ar || "")}</div></div><div class="card">${rows}</div>
   ${canDelFam ? `<div class="row"><button class="btn small red" onclick="delFamily('${esc(f.key)}')">حذف الأسرة</button></div>` : ""}`;
   setBar(`${can("person.create") ? `<button class="btn gold" onclick="go('form',{uid:null,rel:'3',hid:'${esc(f.key)}'})">＋ إضافة فرد</button>` : ""}<button class="btn sec" onclick="go('home')">رجوع</button>`);
 }
-function softDelete(p, reason) { p.deleted = { by: me().id, at: Date.now(), reason }; p.ub = me().id; p.ua = Date.now(); audit("person_delete", p.id, fullName(p) + " — " + reason); }
-function delFamily(k) {
+const noteVisible = (n) => !SESSION || n.u === me().id || can("note.view.others");
+const notesOf = (p) => (p.notes || []).filter(noteVisible);
+function addNote(uidv) {
+  const rec = DB.people.find(x => x.uid === uidv), ta = $("#nt_text"), x = ((ta && ta.value) || "").trim();
+  if (!rec || !canSee(rec) || !can("note.add")) return toast("ليست لديك صلاحية إضافة ملاحظة"); if (!x) return toast("اكتب الملاحظة أولاً"); if (x.length > 2000) return toast("الملاحظة أطول من 2000 حرف");
+  if ((rec.notes || []).length >= 50) return toast("بلغ السجل 50 ملاحظة");
+  (rec.notes = rec.notes || []).push({ t: Date.now(), u: me().id, un: me().username, x }); audit("note_add", rec.id, "", rec.campId); save(); commit("تمت إضافة الملاحظة ✅"); renderNotes(rec);
+}
+function renderNotes(rec) {
+  const box = $("#notes"); if (!box) return; const ns = notesOf(rec).slice().sort((a, b) => b.t - a.t);
+  box.innerHTML = `<b>📝 ملاحظات (${ns.length})</b><div class="hint">تُسجَّل باسم كاتبها وتاريخها ولا تُعدَّل ولا تُحذف؛ صحّح بملاحظة جديدة. ${can("note.view.others") ? "" : "ترى ملاحظاتك فقط."}</div>
+   ${ns.map(n => `<div class="mem" style="cursor:default;display:block"><div>${esc(n.x).replace(/\n/g, "<br>")}</div><small>${esc((DB.users.find(u => u.id === n.u) || {}).name || n.un || "؟")} • ${new Date(n.t).toLocaleString("ar")}</small></div>`).join("")}
+   ${can("note.add") ? `<textarea id="nt_text" rows="2" maxlength="2000" placeholder="أضف ملاحظة (حالة خاصة، مشكلة في الوثيقة، تعذّر الوصول…)"></textarea><div class="row" style="margin-top:6px"><button class="btn small" onclick="addNote('${rec.uid}')">إضافة الملاحظة</button></div>` : ""}`;
+}
+function softDelete(p, reason) {
+  if (SESSION && !(canSee(p) && canDelRec(p))) throw new Error("ليست لديك صلاحية حذف هذا السجل"); p.deleted = { by: me().id, at: Date.now(), reason }; p.ub = me().id; p.ua = Date.now(); audit("person_delete", p.id, fullName(p) + " — " + reason, p.campId); }
+async function delFamily(k) {
   const ms = live().filter(p => (p.hid || p.id) === k && visible().includes(p)); if (!ms.every(canDelRec)) return toast("ليست لديك صلاحية حذف كل أفراد الأسرة");
-  const r = prompt("سبب حذف الأسرة كلها؟ (مطلوب)"); if (!r || !r.trim()) return toast("لم يُحذف: السبب مطلوب");
-  ms.forEach(p => softDelete(p, r.trim())); save(); toast("تم الحذف (يمكن استرجاعه من المحذوفات)"); go("home");
+  const r = await uiPrompt("سبب حذف الأسرة كلها؟", { icon: "warning", title: "حذف أسرة", placeholder: "اكتب السبب", danger: true, ok: "حذف" }); if (!r || !r.trim()) return toast("لم يُحذف: السبب مطلوب");
+  ms.forEach(p => softDelete(p, r.trim())); save(); commit("تم الحذف (يمكن استرجاعه من المحذوفات)"); go("home");
 }
 function opt(items, sel, lab) { return `<option value="">— اختر —</option>` + items.map(x => `<option value="${esc(x.c)}"${x.c === sel ? " selected" : ""}>${esc(lab ? lab(x) : x.ar)}</option>`).join(""); }
 function locOptions(gov, sel, only) { const g = gov || ""; const list = LK.loc.filter(x => (!only || only.includes(x.c)) && (!g || x.c.startsWith(g) || (g === "40" && x.c.startsWith("41")))); return opt(list, sel, x => x.ar + " (" + x.c + ")"); }
@@ -752,7 +1158,7 @@ const campOf = (p) => DB.camps.find(c => c.id === p.campId);
 function viewForm(v) {
   const a = VIEW.arg || {}; let p;
   if (VIEW.draft) p = VIEW.draft;
-  else if (a.uid) p = { ...DB.people.find(x => x.uid === a.uid) };
+  else if (a.uid) { const rec = DB.people.find(x => x.uid === a.uid); if (!canSee(rec)) { toast("لا تملك صلاحية عرض هذا السجل"); return go("home"); } p = { ...rec }; }
   else {
     const mc = myCamps(), headRec = a.hid ? live().find(x => x.hid === a.hid && x.rel === "1") : null, cid = headRec ? headRec.campId : (mc.length === 1 ? mc[0].id : "");
     p = { uid: null, id: "", dt: "1", n1: "", n2: "", n3: "", n4: "", dob: "", sex: "", ms: a.rel === "3" ? "1" : "", ph: "", gov: "", loc: "", hid: a.hid || "", hdt: "1", rel: a.rel || "1", campId: cid };
@@ -766,57 +1172,79 @@ function viewForm(v) {
   $("#view").innerHTML = `<div class="card"><b>${a.uid ? (ro ? "عرض فرد (للقراءة فقط)" : "تعديل فرد") : isHead ? "أسرة جديدة — رب الأسرة" : "إضافة فرد للأسرة"}</b>${ro && a.uid ? '<div class="hint">ليست لديك صلاحية تعديل هذا السجل (أدخله مستخدم آخر).</div>' : ""}${a.uid && p.ca ? `<div class="hint">أدخله: ${esc(by || "؟")} • ${new Date(p.ca).toLocaleDateString("en-GB")}${p.ua && p.ub ? " • آخر تعديل: " + esc(ub || "؟") + " " + new Date(p.ua).toLocaleDateString("en-GB") : ""}</div>` : ""}</div>
   <div class="card"><div class="grid" id="frm">
    ${!a.uid && !a.hid && mc.length > 1 ? fld("campId", "المخيم", `<select data-k="campId" ${dis}>${opt(mc.map(c => ({ c: c.id, ar: c.name })), p.campId)}</select>`, true) : ""}
-   ${fld("id", "رقم الوثيقة (9 أرقام)", `<input class="num" data-k="id" inputmode="numeric" maxlength="9" autocomplete="off" value="${esc(p.id)}" ${dis}>`)}
+   ${fld("id", "رقم الوثيقة (9 أرقام)", `<input class="num" data-k="id" data-num="d" inputmode="numeric" maxlength="9" autocomplete="off" value="${esc(p.id)}" ${dis}>`)}
    ${fld("dt", "نوع الوثيقة", `<select data-k="dt" ${dis}>${opt(LK.doc, p.dt)}</select>`)}
-   ${fld("n1", "الاسم الأول", `<input data-k="n1" value="${esc(p.n1)}" ${dis}>`)}${fld("n2", "اسم الأب", `<input data-k="n2" value="${esc(p.n2)}" ${dis}>`)}
-   ${fld("n3", "اسم الجد", `<input data-k="n3" value="${esc(p.n3)}" ${dis}>`)}${fld("n4", "اسم العائلة", `<input data-k="n4" value="${esc(p.n4)}" ${dis}>`)}
-   ${fld("dob", "تاريخ الميلاد (يوم/شهر/سنة)", `<input class="num" data-k="dob" inputmode="numeric" placeholder="06/04/1991" maxlength="10" value="${esc(p.dob)}" ${dis}>`)}
+   ${fld("n1", "الاسم الأول", `<input data-k="n1" data-lang="ar" value="${esc(p.n1)}" ${dis}>`)}${fld("n2", "اسم الأب", `<input data-k="n2" data-lang="ar" value="${esc(p.n2)}" ${dis}>`)}
+   ${fld("n3", "اسم الجد", `<input data-k="n3" data-lang="ar" value="${esc(p.n3)}" ${dis}>`)}${fld("n4", "اسم العائلة", `<input data-k="n4" data-lang="ar" value="${esc(p.n4)}" ${dis}>`)}
+   ${fld("dob", "تاريخ الميلاد (يوم/شهر/سنة)", `<input class="num" data-k="dob" data-num="d" inputmode="numeric" placeholder="06/04/1991" maxlength="10" value="${esc(p.dob)}" ${dis}>`)}
    ${fld("sex", "الجنس", `<select data-k="sex" ${dis}>${opt(LK.gender, p.sex)}</select>`)}${fld("ms", "الحالة الاجتماعية", `<select data-k="ms" ${dis}>${opt(LK.marital, p.ms)}</select>`)}
-   ${fld("ph", "الجوال (اختياري)", hidePhone ? `<input value="•••• مخفي بحسب صلاحيتك" disabled>` : `<input class="num" data-k="ph" inputmode="tel" maxlength="10" placeholder="0595717751" value="${esc(p.ph)}" ${dis}>`)}
+   ${fld("ph", "الجوال (اختياري)", hidePhone ? `<input value="•••• مخفي بحسب صلاحيتك" disabled>` : `<input class="num" data-k="ph" data-num="d" inputmode="tel" maxlength="10" placeholder="0595717751" value="${esc(p.ph)}" ${dis}>`)}
    ${fld("gov", "المحافظة", `<select data-k="gov" ${dis}>${opt(govItems, p.gov)}</select>`)}
    ${fld("loc", "التجمع السكاني", `<select data-k="loc" ${dis}>${locOptions(p.gov, p.loc, camp ? camp.locs : null)}</select>`)}
    ${fld("rel", "صلة القرابة برب الأسرة", `<select data-k="rel" ${isHead && !a.uid ? "disabled" : dis}>${opt(LK.relation, p.rel)}</select>`)}
-   ${fld("hid", "رقم وثيقة رب الأسرة", `<input class="num" data-k="hid" inputmode="numeric" maxlength="9" ${isHead || ro ? "readonly" : ""} value="${esc(p.hid)}">`)}
-  </div></div><ul class="msgs sticky" id="msgs"></ul>`;
+   ${fld("hid", "رقم وثيقة رب الأسرة", `<input class="num" data-k="hid" data-num="d" inputmode="numeric" maxlength="9" ${isHead || ro ? "readonly" : ""} value="${esc(p.hid)}">`)}
+  </div></div><ul class="msgs" id="dups"></ul><ul class="msgs sticky" id="msgs"></ul>`;
+  if (a.uid && !VIEW.draft.__fresh) { $("#view").insertAdjacentHTML("beforeend", '<div class="card" id="notes"></div>'); renderNotes(DB.people.find(x => x.uid === a.uid)); }
   if (!ro) { const frm = $("#frm"); frm.addEventListener("input", onFormInput); frm.addEventListener("change", onFormInput); }
   setBar(ro ? `<button class="btn sec" onclick="cancelForm()">رجوع</button>` : `<button class="btn" id="sv" onclick="saveForm()">حفظ</button><button class="btn sec" onclick="cancelForm()">إلغاء</button>${a.uid && canDelRec(p) ? '<button class="btn red" style="flex:0 0 auto" onclick="delPerson()">حذف</button>' : ""}`);
   showIssues();
 }
 function onFormInput(e) {
-  const t = e.target, k = t.dataset.k, p = VIEW.draft; if (!k) return;
+  const t = e.target, k = t.dataset.k, p = VIEW.draft; if (!k || !p || VIEW.name !== "form") return;   // a late "change" from a field that is being removed must not touch another screen
   if (k === "dob") { let d = t.value.replace(/\D/g, "").slice(0, 8); if (d.length > 4) d = d.slice(0, 2) + "/" + d.slice(2, 4) + "/" + d.slice(4); else if (d.length > 2) d = d.slice(0, 2) + "/" + d.slice(2); t.value = d; }
   if (k === "id" || k === "hid" || k === "ph") t.value = t.value.replace(/\D/g, "");
-  p[k] = t.value;
+  p[k] = t.value; draftChanged();
   if (k === "campId") { const c = campOf(p); p.gov = c ? c.gov : ""; p.loc = c && c.locs.length === 1 ? c.locs[0] : ""; const keep = VIEW.draft, ar = VIEW.arg; render(); VIEW.draft = keep; return; }
   if (k === "id" && p.rel === "1") { p.hid = p.id; $('[data-k="hid"]').value = p.id; }
   if (k === "rel") { const h = $('[data-k="hid"]'); h.readOnly = p.rel === "1"; if (p.rel === "1") { p.hid = p.id; h.value = p.id; } }
   if (k === "gov") { p.loc = ""; const c = campOf(p); $('[data-k="loc"]').innerHTML = locOptions(p.gov, "", c ? c.locs : null); }
   showIssues();
 }
-function draftIssues() { const p = VIEW.draft, others = live().filter(x => x.uid !== p.uid), tmp = { ...p, uid: p.uid || "__new" }; return validate(tmp, buildCtx(others.concat([tmp]))); }
+function dupHits(p) {   // early duplicate warning: same document number (confirmed) or same normalised name + birth date (probable), across ALL camps on this device
+  const ix = IX(), out = [], seen = new Set(), id = (p.id || "").trim(), fn = fullName(p), d = (p.dob || "").trim();
+  const add = (arr, k) => { for (const x of arr || []) if (x.uid !== p.uid && !seen.has(x.uid)) { seen.add(x.uid); const see = canSee(x); out.push({ k, p: x, see, camp: (DB.camps.find(c => c.id === x.campId) || {}).name || "؟" }); } };
+  if (id.length >= 5) add(ix.byId.get(id), "id"); if (fn && d.length === 10) { const nf = nrm(fn); add((ix.byDob.get(d) || []).filter(x => nrm(fullName(x)) === nf), "nd"); }
+  return out.slice(0, 5);
+}
+function draftIssues() {   // validates the form record against only the records its rules can depend on (same id / same family / same name+birth)
+  const p = VIEW.draft, ix = IX(), id = (p.id || "").trim(), hid = ((p.rel === "1" ? p.id : p.hid) || "").trim(), set = new Map(), add = (a) => { for (const x of a || []) if (x.uid !== p.uid) set.set(x.uid, x); };
+  add(ix.byId.get(id)); add(ix.byHid.get(hid)); add(ix.byId.get(hid)); const fn = fullName(p); if (fn && (p.dob || "").trim()) add(ix.nd.get(fn + "|" + p.dob));
+  const tmp = { ...p, uid: p.uid || "__new" }; return validate(tmp, buildCtx([...set.values(), tmp]));
+}
 function showIssues() {
   const iss = draftIssues(); document.querySelectorAll("#frm [data-k]").forEach(el => el.classList.remove("bad", "warnf")); const p = VIEW.draft;
   for (const i of iss) for (const f of i.f) { const el = $(`[data-k="${f}"]`); if (el && (p[f] || f === "name")) el.classList.add(i.s === "E" ? "bad" : "warnf"); }
+  const dp = dupHits(p), dbox = $("#dups"); if (dbox) dbox.innerHTML = dp.length ? dp.map(d => `<li class="${d.k === "id" ? "e" : "w"}">${d.k === "id" ? "❌ نفس رقم الوثيقة" : "⚠ اسم وتاريخ ميلاد متشابهان"}: ${d.see ? `<a href="#" onclick="go('form',{uid:'${d.p.uid}'});return false">${esc(fullName(d.p))}</a> (${esc(d.camp)})${d.p.cb && d.p.cb !== (me() || {}).id ? " — أدخله " + esc((DB.users.find(u => u.id === d.p.cb) || {}).name || "مستخدم آخر") : ""}` : "يوجد في مخيم آخر لا تملك صلاحية عرضه — راجع المشرف"}</li>`).join("") : "";
   const empty = ["id", "n1", "dob", "sex", "ms", "gov", "loc", "rel"].every(k => !p[k]);
   $("#msgs").innerHTML = empty ? "" : iss.length ? iss.map(i => `<li class="${i.s === "E" ? "e" : "w"}">${i.s === "E" ? "❌" : "⚠"} ${esc(i.m)}</li>`).join("") : `<li class="g">✅ لا توجد ملاحظات</li>`;
   const sv = $("#sv"); if (sv) sv.textContent = iss.some(i => i.s === "E") ? "حفظ (يوجد أخطاء)" : iss.length ? "حفظ (مع تنبيه)" : "حفظ";
 }
-function saveForm() {
+async function saveForm() {
   const p = VIEW.draft, iss = draftIssues(); if (!canEditRec(p)) return toast("ليست لديك صلاحية");
+  if (p.uid && !canSee(DB.people.find(x => x.uid === p.uid))) return toast("لا تملك صلاحية على هذا السجل");
+  if (SESSION && !isAdmin()) { const u = me(); if (!(u.camps || []).includes(p.campId) || ((u.locs || []).length && !u.locs.includes(p.loc))) return toast("المخيم أو التجمع خارج نطاقك"); }
   if (!p.id && !p.n1) return toast("أدخل رقم الوثيقة والاسم أولاً"); if (!p.uid && !p.campId) return toast("اختر المخيم");
-  if (iss.some(i => i.s === "E") && !confirm("يوجد أخطاء في هذا السجل. هل تريد حفظه كمسودة وتصحيحه لاحقاً؟")) return;
-  if (!iss.some(i => i.s === "E") && iss.length && !confirm("يوجد تنبيه: " + iss.map(i => i.m).join(" | ") + "\nهل راجعت الوثيقة وتريد الحفظ؟")) return;
+  if (p.rel === "1") {   // a family has exactly ONE head: refuse a second one (also when an existing member is switched to "head")
+    const own = (p.id || "").trim(), fk = ((p.uid ? (DB.people.find(x => x.uid === p.uid) || {}).hid : (VIEW.arg || {}).hid) || "").trim();
+    const other = (fk && fk !== own && live().find(x => x.uid !== p.uid && x.rel === "1" && (x.hid || x.id || "").trim() === fk)) || (own && live().find(x => x.uid !== p.uid && x.rel === "1" && (x.id || "").trim() === own));
+    if (other) { await uiAlert(`لهذه الأسرة رب أسرة مسجَّل: ${fullName(other)} (${other.id}).\nلكل أسرة رب واحد فقط. إن كان هو نفسه فافتح سجله وعدّله؛ وإن تغيّر رب الأسرة فغيّر صلة قرابة السجل القديم أولاً ثم احفظ هذا.`, { icon: "error", title: "رب الأسرة مكرر", ok: "فهمت" }); return; }
+  } else if (p.hid) {
+    const heads = live().filter(x => x.uid !== p.uid && x.rel === "1" && (x.hid || x.id || "").trim() === (p.hid || "").trim());
+    if (heads.length > 1) { await uiAlert("هذه الأسرة فيها أكثر من رب أسرة في السجلات. صحّحها أولاً من «قائمة المشاكل».", { icon: "warning", title: "أسرة غير سليمة", ok: "حسناً" }); }
+  }
+  if (iss.some(i => i.s === "E") && !(await uiConfirm("• " + iss.filter(i => i.s === "E").map(i => i.m).join("\n• ") + "\n\nهل تريد حفظه كمسودة وتصحيحه لاحقاً؟", { icon: "error", title: "أخطاء في السجل", ok: "حفظ كمسودة", cancel: "تصحيح الآن" }))) return;
+  if (!iss.some(i => i.s === "E") && iss.length && !(await uiConfirm("• " + iss.map(i => i.m).join("\n• ") + "\n\nهل راجعت الوثيقة وتريد الحفظ؟", { icon: "warning", title: "تنبيه", ok: "حفظ", cancel: "مراجعة" }))) return;
   const rec = { ...p, id: p.id.trim(), hid: (p.rel === "1" ? p.id : p.hid).trim() }, now = Date.now();
-  if (rec.uid) { const i = DB.people.findIndex(x => x.uid === rec.uid), old = DB.people[i]; const ch = FIELDS.filter(k => (old[k] || "") !== (rec[k] || "")); if (!can("phone.view")) rec.ph = old.ph; rec.cb = old.cb; rec.ca = old.ca; rec.campId = old.campId; rec.dv = old.dv; rec.ub = me().id; rec.ua = now; DB.people[i] = rec; audit("person_edit", rec.id, ch.length ? "حقول: " + ch.join("،") : "بدون تغيير"); }
-  else { rec.uid = uid(); rec.cb = me().id; rec.ca = now; rec.dv = DB.deviceId; DB.people.push(rec); audit("person_create", rec.id, fullName(rec)); }
-  DB.meta.defGov = rec.gov || DB.meta.defGov; DB.meta.defLoc = rec.loc || DB.meta.defLoc; save();
-  VIEW = { name: "family", arg: rec.hid }; toast("تم الحفظ ✅"); render();
+  if (rec.uid) { const i = DB.people.findIndex(x => x.uid === rec.uid), old = DB.people[i]; const ch = FIELDS.filter(k => (old[k] || "") !== (rec[k] || "")); if (!can("phone.view")) rec.ph = old.ph; rec.cb = old.cb; rec.ca = old.ca; rec.campId = old.campId; rec.dv = old.dv; rec.ub = me().id; rec.ua = now; rec.rv = (old.rv || 0) + 1; rec.notes = old.notes; DB.people[i] = rec; audit("person_edit", rec.id, ch.length ? "حقول: " + ch.join("،") : "بدون تغيير", rec.campId); }
+  else { rec.uid = uid(); rec.cb = me().id; rec.ca = now; rec.dv = DB.deviceId; rec.rv = 1; DB.people.push(rec); audit("person_create", rec.id, fullName(rec), rec.campId); }
+  DB.meta.defGov = rec.gov || DB.meta.defGov; DB.meta.defLoc = rec.loc || DB.meta.defLoc; save(); clearDraft();
+  VIEW = { name: "family", arg: rec.hid }; render(); commit("تم الحفظ ✅");
 }
-function cancelForm() { const p = VIEW.draft; VIEW = p && p.hid && live().some(x => x.hid === p.hid) ? { name: "family", arg: p.hid } : { name: "home" }; render(); }
-function delPerson() {
-  const p = VIEW.draft, rec = DB.people.find(x => x.uid === p.uid); if (!rec || !canDelRec(rec)) return toast("ليست لديك صلاحية الحذف");
-  const r = prompt("سبب الحذف؟ (مطلوب)"); if (!r || !r.trim()) return toast("لم يُحذف: السبب مطلوب");
-  softDelete(rec, r.trim()); save(); toast("تم الحذف (يمكن استرجاعه من المحذوفات)"); VIEW = live().some(x => x.hid === p.hid) ? { name: "family", arg: p.hid } : { name: "home" }; render();
+async function cancelForm() { const p = VIEW.draft; if (VIEW.dirty && !(await uiConfirm("تجاهل التعديلات غير المحفوظة؟", { icon: "warning", danger: true, ok: "تجاهل", cancel: "رجوع للنموذج" }))) return; clearDraft(); VIEW = p && p.hid && live().some(x => x.hid === p.hid) ? { name: "family", arg: p.hid } : { name: "home" }; render(); }
+async function delPerson() {
+  const p = VIEW.draft, rec = DB.people.find(x => x.uid === p.uid); if (!rec || !canSee(rec) || !canDelRec(rec)) return toast("ليست لديك صلاحية الحذف");
+  const r = await uiPrompt("سبب الحذف؟", { icon: "warning", title: "حذف سجل", placeholder: "اكتب السبب", danger: true, ok: "حذف" }); if (!r || !r.trim()) return toast("لم يُحذف: السبب مطلوب");
+  softDelete(rec, r.trim()); save(); clearDraft(); commit("تم الحذف (يمكن استرجاعه من المحذوفات)"); VIEW = live().some(x => x.hid === p.hid) ? { name: "family", arg: p.hid } : { name: "home" }; render();
 }
 function viewQuality(v) {
   const rows = []; for (const p of visible()) for (const i of (v.get(p.uid) || [])) rows.push({ p, i }); rows.sort((a, b) => (a.i.s === "E" ? 0 : 1) - (b.i.s === "E" ? 0 : 1));
@@ -825,16 +1253,22 @@ function viewQuality(v) {
   setBar(`<button class="btn sec" onclick="go('home')">رجوع</button>`);
 }
 function viewData(v) {
-  const mine = visible(), err = mine.filter(p => status(v.get(p.uid) || []) === "E").length, n = mine.length;
+  const mine = visible(), err = mine.filter(p => status(v.get(p.uid) || []) === "E").length, n = mine.length, done = VIEW.arg && VIEW.arg.done, lb = DB.meta.lastBackup, bi = DB.meta.lastBackupInfo;
+  const logs = (DB.imports || []).filter(x => isAdmin() || x.by === (me() || {}).id).slice(-6).reverse(), q = SAVE.quota;
   $("#view").innerHTML = `
+  ${done ? `<div class="card" style="border-color:#548235"><b>✅ تم الاستيراد</b><div class="hint">جديد ${done.added} • محدّث ${done.updated} • أُبقي الحالي ${done.kept} • بلا تغيير ${done.same} • مرفوض ${done.rejected}${done.removed ? " • أُزيل " + done.removed : ""}</div></div>` : ""}
+  <div class="card"><b>أين بياناتك الآن؟</b><div class="hint">• على <b>هذا الجهاز وهذا المتصفح فقط</b>${SAVE.persisted ? " (التخزين محميّ من المسح التلقائي)" : " (المتصفح قد يمسحه إذا امتلأ الجهاز؛ ثبّت التطبيق على الشاشة الرئيسية)"}.<br>• حالة الحفظ: ${SAVE.state === "saved" ? "محفوظ ✔ " + hhmm(SAVE.at) : esc(SAVE.state)} ${q && q.quota ? "• المستخدم " + Math.round(q.usage / 1048576 * 10) / 10 + " م.ب" : ""}<br>• <b>الحماية الحقيقية من ضياع الجهاز أو مسح المتصفح هي النسخة الاحتياطية خارج الجهاز</b> (واتساب/بريد/ذاكرة USB/Drive).<br>• آخر نسخة احتياطية: ${lb ? new Date(lb).toLocaleString("ar") + (bi ? " (" + bi.n + " سجل • بصمة " + esc(bi.sum.slice(0, 8)) + ")" : "") : "<b style='color:#c00000'>لم تؤخذ</b>"}</div></div>
   ${can("export.sheet1") ? `<div class="card"><b>1) تصدير ملف Sheet1 (للجهة المانحة)</b><div class="hint">ملف Excel بنفس أعمدة الجهة المانحة والجداول المرجعية. ${n} فرد${can("person.view.any") ? "" : " (سجلاتك فقط)"}.${can("phone.view") ? "" : " أرقام الجوال تُترك فارغة بحسب صلاحيتك."}</div>
     ${err ? `<div class="banner">❌ يوجد ${err} سجل فيه خطأ. صحّحها قبل التسليم.</div>` : ""}
     <div class="row" style="margin-top:8px"><button class="btn" onclick="exportXlsx()">⬇ تنزيل Excel (Sheet1)</button>${canShareFiles() ? '<button class="btn gold" onclick="shareXlsx()">📤 مشاركة (واتساب / بريد)</button>' : ""}</div><div class="hint" style="margin-top:6px">يُقرأ الملف بعد إنشائه ويُقارَن بالبيانات قبل التسليم.</div></div>` : ""}
-  ${can("backup.make") ? `<div class="card"><b>2) نسخة احتياطية (JSON)</b><div class="hint">للسجلات فقط (بدون حسابات). آخر نسخة: ${DB.meta.lastBackup ? new Date(DB.meta.lastBackup).toLocaleString("ar") : "لم تؤخذ"}</div>
+  ${can("backup.make") ? `<div class="card"><b>2) نسخة احتياطية (JSON)</b><div class="hint">للسجلات ضمن نطاقك (بدون حسابات). تُفحص النسخة بعد إنشائها بإعادة قراءتها وبصمة سلامة SHA-256.</div>
+    ${DB.meta.vaults ? `<label style="display:flex;gap:8px;align-items:center;color:var(--txt);font-size:15px;margin-top:6px"><input type="checkbox" id="benc" style="width:22px;min-height:22px" checked> تشفير النسخة بكلمة سر (موصى به — ملف Excel للجهة المانحة يبقى مفتوحاً كما تشترط)</label>` : ""}
     <div class="row" style="margin-top:8px"><button class="btn sec" onclick="exportJson()">⬇ نسخة احتياطية</button>${canShareFiles() ? '<button class="btn sec" onclick="shareJson()">📤 مشاركة النسخة</button>' : ""}</div></div>` : ""}
-  ${can("import.data") ? `<div class="card"><b>3) استيراد</b><div class="hint">من ملف Excel (Sheet1) أو نسخة JSON. «دمج» يضيف السجلات الجديدة فقط (حسب رقم الوثيقة) ولا يعيد المحذوف، و«استبدال» يمسح سجلاتك الحالية.</div>
-    <div class="row" style="margin-top:8px"><select id="mode" style="max-width:200px"><option value="merge">دمج</option>${isAdmin() ? '<option value="replace">استبدال</option>' : ""}</select><input id="file" type="file" accept=".xlsx,.json" style="max-width:360px"><button class="btn sec" onclick="doImport()">استيراد</button></div></div>` : ""}
-  ${isAdmin() ? `<div class="card"><b>حذف كل السجلات من هذا الجهاز</b><div class="row" style="margin-top:8px"><button class="btn red small" onclick="wipe()">حذف الكل</button></div></div>` : ""}
+  ${can("import.data") ? `<div class="card"><b>3) استيراد / استعادة / فحص ملف</b><div class="hint">اختر ملف Excel (Sheet1) أو نسخة JSON. <b>لا يتغير شيء قبل المعاينة والموافقة</b>: ترى الجديد والمكرر والمتعارض والمرفوض، وتحسم التعارضات، ويمكنك التراجع بعد التطبيق.${isAdmin() ? "<br>«استبدال»: يحذف ناعماً سجلات المخيمات الواردة في الملف وغير الموجودة فيه." : ""}</div>
+    <div class="row" style="margin-top:8px"><select id="mode" style="max-width:200px"><option value="merge">دمج (آمن)</option>${isAdmin() ? '<option value="replace">استبدال</option>' : ""}</select><input id="file" type="file" accept=".xlsx,.json" style="max-width:360px"><button class="btn sec" onclick="doImport()">فحص ومعاينة</button></div>
+    ${logs.length ? `<table class="t" style="margin-top:10px"><tr><th>الملف</th><th>التاريخ</th><th>جديد</th><th>محدّث</th><th>مرفوض</th></tr>${logs.map(x => `<tr><td>${esc(x.name)}</td><td>${new Date(x.at).toLocaleDateString("ar")}</td><td>${x.n}</td><td>${x.u}</td><td>${x.r}</td></tr>`).join("")}</table>` : ""}
+    <div class="row" style="margin-top:8px"><button class="btn small sec" onclick="rollbackImport()">↩ تراجع عن آخر استيراد</button></div></div>` : ""}
+  ${isAdmin() ? `<div class="card"><b>حذف كل السجلات من هذا الجهاز</b><div class="hint">تؤخذ نقطة تراجع تلقائية.</div><div class="row" style="margin-top:8px"><button class="btn red small" onclick="wipe()">حذف الكل</button></div></div>` : ""}
   ${!can("export.sheet1") && !can("backup.make") && !can("import.data") ? '<div class="card hint">لا توجد عمليات بيانات ضمن صلاحيتك.</div>' : ""}`;
   setBar(`<button class="btn sec" onclick="go('menu')">رجوع</button>`);
 }
@@ -842,54 +1276,309 @@ const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 async function makeExport() {
   if (SESSION && !can("export.sheet1")) { toast("ليست لديك صلاحية التصدير"); return null; }
   const v = validateAll(), mine = visible(), err = mine.filter(p => status(v.get(p.uid) || []) === "E").length;
-  if (err && !confirm("يوجد " + err + " سجل فيه خطأ. هل تريد التصدير رغم ذلك؟")) return null;
+  if (err && !(await uiConfirm("يوجد " + err + " سجل فيه خطأ. صحّحها قبل التسليم للجهة المانحة.", { icon: "warning", title: "أخطاء قبل التصدير", ok: "تصدير رغم ذلك", cancel: "تصحيح أولاً" }))) return null;
   let reason = "", meta = null;
   if (SESSION) {
     if (!(await reauth(`لتصدير ${mine.length} فرد أدخل كلمة مرورك`))) return null;
-    reason = (prompt("سبب التصدير؟ (مطلوب — يُسجَّل في سجل التدقيق مع رقم الملف)") || "").trim(); if (!reason) { toast("لم يُصدَّر: السبب مطلوب"); return null; }
+    reason = ((await uiPrompt("يُسجَّل السبب في سجل التدقيق مع رقم الملف.", { title: "سبب التصدير", placeholder: "مثال: تسليم الكشف للجهة المانحة", icon: "info" })) || "").trim(); if (!reason) { toast("لم يُصدَّر: السبب مطلوب"); return null; }
     meta = { id: uid(), by: me().username, at: new Date().toISOString(), dv: DB.deviceId, n: mine.length };
   }
   const bytes = buildXlsx(mine, meta);
   try { const back = await readXlsx(bytes), ids = new Set(mine.map(p => (p.id || "").trim())); if (back.length !== mine.length || !back.every(p => ids.has(p.id))) { alert("فشل التحقق من الملف المُصدَّر (" + back.length + " من " + mine.length + "). لا تعتمد هذا الملف."); return null; } }
-  catch (e) { alert("تعذّر التحقق من الملف المُصدَّر: " + e.message); return null; }
+  catch (e) { await uiAlert("تعذّر التحقق من الملف المُصدَّر: " + e.message, { icon: "error", title: "لم يُسلَّم الملف" }); return null; }
   audit("export_xlsx", `${mine.length} فرد`, meta ? `رقم الملف ${meta.id} • السبب: ${reason}` : ""); return { bytes, name: `${who()}_${stamp()}.xlsx`, n: mine.length };
 }
 async function exportXlsx() { const r = await makeExport(); if (!r) return; dl(r.bytes, r.name, XLSX_MIME); toast(`تم التصدير والتحقق ✅ — ${r.n} فرد، ${Math.max(1, Math.round(r.bytes.length / 1024))} ك.ب`); }
 function canShareFiles() { try { return typeof navigator.canShare === "function" && navigator.canShare({ files: [new File([new Uint8Array(1)], "a.xlsx", { type: XLSX_MIME })] }); } catch (e) { return false; } }
 async function shareBytes(bytes, name, type) { try { await navigator.share({ files: [new File([bytes], name, { type })], title: name }); toast("تمت المشاركة ✅"); } catch (e) { if (e && e.name === "AbortError") return; dl(bytes, name, type); toast("تعذّرت المشاركة، تم التنزيل بدلاً منها"); } }
 async function shareXlsx() { const r = await makeExport(); if (r) await shareBytes(r.bytes, r.name, XLSX_MIME); }
-const backupBytes = () => U8(JSON.stringify({ v: 2, at: Date.now(), by: me() ? me().username : "", audit: DB.audit.slice(-3000), camps: DB.camps, people: visible().concat(DB.people.filter(p => p.deleted && inScope(p))) }, null, 1));
-async function shareJson() { if (!(await reauth("لإنشاء نسخة احتياطية أدخل كلمة مرورك"))) return; DB.meta.lastBackup = Date.now(); audit("backup", "", ""); save(); await shareBytes(backupBytes(), `backup_${who()}_${stamp()}.json`, "application/json"); }
-async function exportJson() { if (!(await reauth("لإنشاء نسخة احتياطية أدخل كلمة مرورك"))) return; DB.meta.lastBackup = Date.now(); audit("backup", "", ""); save(); dl(backupBytes(), `backup_${who()}_${stamp()}.json`, "application/json"); toast("تم حفظ النسخة الاحتياطية ✅"); }
-async function importBytes(bytes, name, mode) {
-  let people; const by = me() ? me().id : null, defCamp = myCamps().length === 1 ? myCamps()[0].id : (DB.camps[0] || {}).id;
-  if (/\.json$/i.test(name)) { const d = JSON.parse(new TextDecoder().decode(bytes)); if (d.type === "camp-package") throw new Error("هذا ملف حزمة حسابات؛ استورده من شاشة الدخول"); people = (d.people || []).map(p => ({ ...p, uid: p.uid || uid() })); if (d.audit) mergeExtAudit(d.audit, d.by); }
-  else people = (await readXlsx(bytes)).map(p => ({ ...p, src: name }));
-  for (const p of people) { p.campId = p.campId || defCamp; p.cb = p.cb || by; p.ca = p.ca || Date.now(); }
-  let added = 0, skipped = 0;
-  if (mode === "replace") { DB.people = people; added = people.length; }
-  else { const have = new Set(DB.people.map(p => p.id)); for (const p of people) { if (have.has(p.id)) skipped++; else { DB.people.push(p); have.add(p.id); added++; } } }
-  audit("import", name, `أُضيف ${added} • مُتجاوَز ${skipped}`); save(); return { added, skipped };
+/* ============================== backup (verified) + import (preview, conflicts, rollback) ============================== */
+async function sha256hex(bytes) { try { if (window.crypto && crypto.subtle && !window.__noSubtle) return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))); } catch (e) { } return hex(words2bytes(sha256From(IV256(), bytes, 0))); }
+const FLAB = { id: "رقم الوثيقة", dt: "نوع الوثيقة", n1: "الاسم الأول", n2: "اسم الأب", n3: "اسم الجد", n4: "العائلة", dob: "تاريخ الميلاد", sex: "الجنس", ms: "الحالة الاجتماعية", ph: "الجوال", gov: "المحافظة", loc: "التجمع", hid: "رقم رب الأسرة", hdt: "نوع وثيقة رب الأسرة", rel: "الصلة" };
+const FLK = { dt: "doc", sex: "gender", ms: "marital", gov: "gov", loc: "loc", rel: "relation", hdt: "doc" };
+const fv = (k, v) => { v = String(v ?? "").trim(); return FLK[k] && L[FLK[k]][v] ? L[FLK[k]][v].ar : v || "—"; };
+const nv = (v) => String(v ?? "").trim();
+function recDiff(a, b) { return FIELDS.filter(k => nv(a[k]) !== nv(b[k])); }
+function structOK(p) {   // structural sanity of ONE incoming record (content errors are quality issues, not import blockers)
+  if (!p || typeof p !== "object" || Array.isArray(p)) return "سجل غير صالح";
+  for (const k of FIELDS) { const v = p[k]; if (v != null && typeof v !== "string" && typeof v !== "number") return "قيمة غير نصية في الحقل " + FLAB[k]; if (String(v ?? "").length > 120) return "قيمة طويلة جداً في الحقل " + FLAB[k]; }
+  if (!nv(p.id) && !nv(p.n1)) return "لا رقم وثيقة ولا اسم";
+  if (p.uid != null && (typeof p.uid !== "string" || p.uid.length > 60)) return "معرّف سجل غير صالح";
+  if (p.notes != null && (!Array.isArray(p.notes) || p.notes.some(n => !n || typeof n.x !== "string" || n.x.length > 2000))) return "ملاحظات غير صالحة";
+  return "";
+}
+// ---- verified backup -------------------------------------------------------------------------------
+async function verifyBackupBytes(bytes) {   // -> { ok, errors[], warnings[], people[], camps[], audit[], meta }
+  const r = { ok: false, errors: [], warnings: [], people: [], camps: [], audit: [], meta: {} };
+  let d; try { d = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); } catch (e) { r.errors.push("الملف ليس JSON صالحاً أو تالف"); return r; }
+  if (d && d.type === "camp-package") { r.pack = true; r.errors.push("هذا ملف حزمة حسابات وليس نسخة بيانات"); return r; }
+  let payload;
+  if (d && d.type === "camp-backup") {
+    if (typeof d.v !== "number" || d.v > 3) { r.errors.push("نسخة من إصدار أحدث من هذا التطبيق"); return r; }
+    payload = d.payload; if (!payload || !Array.isArray(payload.people)) { r.errors.push("بنية النسخة غير صحيحة"); return r; }
+    const sum = await sha256hex(U8(JSON.stringify(payload)));
+    if (sum !== d.sha256) { r.errors.push("فشل فحص السلامة: الملف تغيّر أو تلف بعد إنشائه"); return r; }
+    const c = d.counts || {}, live = payload.people.filter(p => !p.deleted).length;
+    if (typeof c.people === "number" && c.people !== live) { r.errors.push("عدد السجلات لا يطابق ما سُجّل في النسخة"); return r; }
+    r.meta = { at: d.at, by: d.by, v: d.v, app: d.app, sum: d.sha256, deviceId: d.deviceId };
+  } else if (d && Array.isArray(d.people)) {      // v2 backups (no integrity stamp)
+    payload = d; r.warnings.push("نسخة قديمة بلا بصمة سلامة؛ لا يمكن التأكد أنها لم تتغير"); r.meta = { at: d.at, by: d.by, v: d.v || 1 };
+  } else { r.errors.push("الملف ليس نسخة احتياطية لهذا التطبيق"); return r; }
+  if (payload.people.length > 200000) { r.errors.push("عدد السجلات كبير جداً"); return r; }
+  r.people = payload.people; r.camps = Array.isArray(payload.camps) ? payload.camps : []; r.audit = Array.isArray(payload.audit) ? payload.audit : []; r.ok = true; return r;
+}
+async function makeBackup() {
+  if (!can("backup.make")) throw new Error("ليست لديك صلاحية النسخ الاحتياطي");
+  const payload = { camps: myCamps().map(c => ({ ...c })), people: visible().concat(DB.people.filter(p => p.deleted && inScope(p))), audit: DB.audit.slice(-3000) };
+  const sha256 = await sha256hex(U8(JSON.stringify(payload)));
+  const env = { type: "camp-backup", v: 3, schema: SCHEMA, app: APP_VERSION, at: Date.now(), by: me() ? me().username : "", deviceId: DB.deviceId, counts: { people: payload.people.filter(p => !p.deleted).length, deleted: payload.people.filter(p => p.deleted).length, camps: payload.camps.length }, sha256, payload };
+  const bytes = U8(JSON.stringify(env)), chk = await verifyBackupBytes(bytes);      // read back exactly like a restore would
+  if (!chk.ok) throw new Error("فشل التحقق من النسخة بعد إنشائها: " + chk.errors[0]);
+  return { bytes, env, sum: sha256 };
+}
+async function backupNow(share, enc) {
+  if (!(await reauth("لإنشاء نسخة احتياطية أدخل كلمة مرورك"))) return;
+  let b; try { b = await makeBackup(); } catch (e) { return toast("❌ " + e.message); }
+  let name = `backup_${who()}_${stamp()}.json`;
+  if (enc) {
+    const p1 = await askPassword("اختر كلمة سر لتشفير النسخة (احفظها: بدونها لا تُفتح)"); if (!p1) return; if (p1.length < 8) return toast("كلمة السر أقل من 8 أحرف"); const p2 = await askPassword("أعد كتابة كلمة السر للتأكيد"); if (p2 !== p1) return toast("كلمتا السر غير متطابقتين");
+    try { const o = await encryptBytes(b.bytes, p1), eb = U8(JSON.stringify(o)); const back = await decryptBytes(o, p1); if ((await sha256hex(back)) !== (await sha256hex(b.bytes))) throw new Error("فشل التحقق"); b = { ...b, bytes: eb }; name = `backup_enc_${who()}_${stamp()}.json`; } catch (e) { return toast("❌ تعذّر تشفير النسخة: " + e.message); }
+  }
+  if (share) await shareBytes(b.bytes, name, "application/json"); else dl(b.bytes, name, "application/json");
+  DB.meta.lastBackup = Date.now(); DB.meta.lastBackupInfo = { n: b.env.counts.people, sum: b.sum.slice(0, 12), at: DB.meta.lastBackup }; audit("backup", name, `${b.env.counts.people} سجل • بصمة ${b.sum.slice(0, 8)}`); save();
+  if (await commit()) toast(`✅ نسخة سليمة: ${b.env.counts.people} سجل • بصمة ${b.sum.slice(0, 8)} — خزّنها خارج الجهاز`);
+}
+const exportJson = () => backupNow(false, !!($("#benc") && $("#benc").checked)), shareJson = () => backupNow(true, !!($("#benc") && $("#benc").checked));
+// ---- import: plan (no changes) -> preview -> apply (with rollback snapshot) ------------------------------
+async function planImport(bytes, name, opts = {}) {
+  if (!can("import.data")) throw new Error("ليست لديك صلاحية الاستيراد");
+  if (bytes.length > 60 * 1024 * 1024) throw new Error("الملف كبير جداً (أكثر من 60 م.ب)");
+  const fileHash = await sha256hex(bytes); let people, camps = [], fmt, meta = {}, warnings = [];
+  if (bytes[0] === 0x7b && /"type"\s*:\s*"camp-backup-enc"/.test(new TextDecoder().decode(bytes.subarray(0, 200)))) {
+    if (!opts.passphrase) { const e = new Error("الملف مشفّر بكلمة سر"); e.needPass = true; throw e; }
+    let o; try { o = JSON.parse(new TextDecoder().decode(bytes)); } catch (e) { throw new Error("الملف المشفّر تالف"); } const inner = await decryptBytes(o, opts.passphrase);
+    const pl = await planImport(inner, name, { ...opts, passphrase: null }); pl.fileHash = fileHash; return pl;
+  }
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) { fmt = "xlsx"; try { people = await readXlsx(bytes); } catch (e) { throw new Error("تعذّرت قراءة ملف Excel: " + (e.message || "ملف غير صالح")); } warnings = people.warn || []; }
+  else { fmt = "json"; const c = await verifyBackupBytes(bytes); if (!c.ok) throw new Error(c.errors[0]); people = c.people; camps = c.camps; meta = c.meta; warnings = c.warnings; if (c.audit.length) opts.audit = c.audit; }
+  const mc = myCamps(), target = opts.targetCamp || (mc.length === 1 ? mc[0].id : ""), admin = isAdmin(), fileCamps = new Map(camps.map(c => [c.id, c])), campMap = new Map(), newCamps = [];
+  const resolveCamp = (cid) => {
+    if (!cid) return target || null; if (campMap.has(cid)) return campMap.get(cid);
+    let to = DB.camps.some(c => c.id === cid) ? cid : null;
+    if (!to) { const fc = fileCamps.get(cid), same = fc && DB.camps.find(c => c.name === fc.name && c.gov === fc.gov); if (same) to = same.id; else if (fc && admin) { newCamps.push({ id: fc.id, name: fc.name, gov: fc.gov, locs: fc.locs || [] }); to = fc.id; } }
+    campMap.set(cid, to); return to;
+  };
+  const byUid = new Map(), byIdCamp = new Map(), byId = new Map();
+  for (const p of DB.people) { byUid.set(p.uid, p); byIdCamp.set(p.campId + "|" + nv(p.id), p); (byId.get(nv(p.id)) || byId.set(nv(p.id), []).get(nv(p.id))).push(p); }
+  const items = [], seenUid = new Set(), seenKey = new Map(), counts = { new: 0, same: 0, conflict: 0, rejected: 0, dupfile: 0, deleted: 0, cross: 0, dupid: 0 }, hashParts = [];
+  for (const raw of people) {
+    const bad = structOK(raw); if (bad) { items.push({ kind: "rejected", rec: raw || {}, why: bad }); counts.rejected++; continue; }
+    const rec = { ...raw }; for (const k of FIELDS) rec[k] = nv(rec[k]);
+    hashParts.push(FIELDS.map(k => rec[k]).join("|"));
+    const cid = resolveCamp(rec.campId); if (!cid) { items.push({ kind: "rejected", rec, why: rec.campId ? "مخيم غير معروف على هذا الجهاز" : "حدّد المخيم المستهدف" }); counts.rejected++; continue; }
+    rec.campId = cid;
+    if (!admin) { const u = me(); if (!(u.camps || []).includes(cid) || ((u.locs || []).length && !u.locs.includes(rec.loc))) { items.push({ kind: "rejected", rec, why: "خارج نطاق صلاحياتك" }); counts.rejected++; continue; } }
+    const key = cid + "|" + rec.id, sig = FIELDS.map(k => rec[k]).join("|");
+    if (rec.uid && seenUid.has(rec.uid)) { items.push({ kind: "dupfile", rec, why: "نفس معرّف السجل مكرر داخل الملف (يُهمل)" }); counts.dupfile++; continue; }
+    if (rec.id && seenKey.has(key)) { if (seenKey.get(key) === sig) { items.push({ kind: "dupfile", rec, why: "صف مطابق تماماً لصف سابق في الملف (يُهمل)" }); counts.dupfile++; continue; } counts.dupid++; rec.__dupid = true; }   // same document number, different content: kept so the quality rules flag it for review
+    if (rec.uid) seenUid.add(rec.uid); if (rec.id && !seenKey.has(key)) seenKey.set(key, sig);
+    let loc = (rec.uid && byUid.get(rec.uid)) || (rec.id && byIdCamp.get(key)) || null;
+    if (loc && loc.campId !== cid && !(rec.uid && loc.uid === rec.uid)) loc = null;
+    if (!loc) {
+      const other = (byId.get(rec.id) || []).filter(x => !x.deleted && x.campId !== cid && (admin || inScope(x)));
+      items.push({ kind: "new", rec, cross: other[0] || null, dupid: !!rec.__dupid }); counts.new++; if (other.length) counts.cross++; delete rec.__dupid; continue;
+    }
+    if (loc.deleted && !rec.deleted) { items.push({ kind: "deleted", rec, local: loc, why: "محذوف محلياً — لا يُعاد تلقائياً" }); counts.deleted++; continue; }
+    if (!inScopeOrAdmin(loc)) { items.push({ kind: "rejected", rec, why: "يطابق سجلاً خارج نطاقك" }); counts.rejected++; continue; }
+    const diff = recDiff(loc, rec), newNotes = (rec.notes || []).some(n => !(loc.notes || []).some(m => m.t === n.t && m.u === n.u && m.x === n.x));
+    if (!diff.length) { items.push({ kind: "same", rec, local: loc, newNotes }); counts.same++; }
+    else { items.push({ kind: "conflict", rec, local: loc, diff, newer: (rec.ua || 0) > (loc.ua || 0) ? "in" : "loc", sameUid: rec.uid && rec.uid === loc.uid }); counts.conflict++; }
+  }
+  const contentHash = (await sha256hex(U8(hashParts.sort().join("\n")))).slice(0, 24), prev = (DB.imports || []).find(x => x.ch === contentHash || x.fh === fileHash);
+  return { bytes, name, fmt, fileHash, contentHash, meta, warnings, target, needsTarget: !target && mc.length > 1 && items.some(i => i.why === "حدّد المخيم المستهدف"), newCamps, items, counts, dec: new Map(), prev, audit: opts.audit || null, mode: opts.mode || "merge", total: people.length };
+}
+const inScopeOrAdmin = (p) => !SESSION || isAdmin() || inScope(p);
+async function applyPlan(plan, o = {}) {
+  if (!can("import.data")) throw new Error("ليست لديك صلاحية الاستيراد");
+  const mode = o.mode || plan.mode || "merge"; if (mode === "replace" && !isAdmin()) throw new Error("الاستبدال لمدير النظام فقط");
+  try { await Store.putAux("pre_import", await sealObj({ at: Date.now(), name: plan.name, by: me() ? me().id : null, s: snapStr() }, "pre_import")); } catch (e) { throw new Error("تعذّر حفظ نقطة التراجع (المساحة؟) — لم يُطبَّق الاستيراد"); }
+  const by = me() ? me().id : null, now = Date.now(), importId = uid(), res = { added: 0, updated: 0, kept: 0, same: 0, skipped: 0, removed: 0, rejected: plan.counts.rejected, notes: 0, importId };
+  for (const c of plan.newCamps) if (!DB.camps.some(x => x.id === c.id)) { DB.camps.push(c); audit("camp_create", c.name, "من ملف استيراد"); }
+  const userIds = new Set(DB.users.map(u => u.id)), matched = new Set(), mergeNotes = (loc, rec) => { let n = 0; for (const x of rec.notes || []) if (!(loc.notes || []).some(m => m.t === x.t && m.u === x.u && m.x === x.x)) { (loc.notes = loc.notes || []).push({ t: x.t, u: x.u, un: x.un, x: x.x }); n++; } return n; };
+  plan.items.forEach((it, i) => {
+    if (it.kind === "new") { const r = { ...it.rec }; r.uid = r.uid && !byUidHas(r.uid) ? r.uid : uid(); if (!r.cb || !userIds.has(r.cb)) { r.ocb = r.cb || ""; r.cb = by; } r.ca = r.ca || now; r.src = plan.name; r.ib = importId; DB.people.push(r); res.added++; }
+    else if (it.kind === "same") { matched.add(it.local.uid); if (it.newNotes) res.notes += mergeNotes(it.local, it.rec); res.same++; }
+    else if (it.kind === "conflict") { matched.add(it.local.uid); res.notes += mergeNotes(it.local, it.rec); const d = plan.dec.get(i) || o.resolve || "keep"; if (d === "take" || (d === "newer" && it.newer === "in")) { for (const k of FIELDS) it.local[k] = it.rec[k]; it.local.ub = by; it.local.ua = now; it.local.ib = importId; it.local.rv = (it.local.rv || 0) + 1; res.updated++; } else res.kept++; }
+    else if (it.kind === "deleted") { res.skipped++; }
+  });
+  if (mode === "replace") {
+    const camps = new Set(plan.items.map(i => i.rec.campId).filter(Boolean));
+    for (const p of DB.people) if (!p.deleted && camps.has(p.campId) && !matched.has(p.uid) && p.ib !== importId) { p.deleted = { by, at: now, reason: "استبدال بالاستيراد: " + plan.name }; p.ub = by; p.ua = now; res.removed++; }
+  }
+  if (plan.audit) mergeExtAudit(plan.audit, (plan.meta && plan.meta.by) || "");
+  DB.imports = DB.imports || []; DB.imports.push({ id: importId, name: plan.name, fh: plan.fileHash, ch: plan.contentHash, at: now, by, mode, n: res.added, u: res.updated, k: res.kept, s: res.same, r: res.rejected }); if (DB.imports.length > 300) DB.imports.splice(0, DB.imports.length - 300);
+  audit("import", plan.name, `${mode === "replace" ? "استبدال • " : ""}جديد ${res.added} • محدّث ${res.updated} • أُبقي ${res.kept} • بلا تغيير ${res.same} • مرفوض ${res.rejected} • محذوف محلياً ${res.skipped}${res.removed ? " • أُزيل " + res.removed : ""}`);
+  save(); if (!(await flush({ snap: true }))) throw new Error("طُبّق الاستيراد في الذاكرة لكن تعذّر حفظه على الجهاز: " + SAVE.err); return res;
+}
+const byUidHas = (u) => DB.people.some(p => p.uid === u);
+async function importBytes(bytes, name, mode) { const plan = await planImport(bytes, name, { mode }); const r = await applyPlan(plan, { mode, resolve: "keep" }); return { ...r, skipped: r.same + r.kept + r.skipped }; }   // compatibility helper (tests/tools): keeps local on conflicts
+async function rollbackImport() {
+  const s = await openObj(await Store.getAux("pre_import").catch(() => null), "pre_import"); if (!s || !s.s) return toast("لا توجد نقطة تراجع");
+  if (!isAdmin() && s.by !== (me() || {}).id) return toast("نقطة التراجع لمستخدم آخر");
+  if (!(await uiConfirm(`التراجع إلى حالة ما قبل «${s.name}» (${new Date(s.at).toLocaleString("ar")}). ستفقد أي تعديلات أُجريت بعد ذلك على هذا الجهاز.`, { icon: "warning", title: "تراجع عن الاستيراد", ok: "تراجع" }))) return;
+  if (!(await reauth("للتراجع عن الاستيراد أدخل كلمة مرورك"))) return;
+  try { await Store.putAux("pre_rollback", await sealObj({ at: Date.now(), s: snapStr() }, "pre_rollback")); const d = JSON.parse(s.s); if (d.priv) mergePriv(d.priv); else DB = { ...DB, ...d, meta: { ...DB.meta, ...(d.meta || {}) } }; audit("import_rollback", s.name, ""); save(); await Store.delAux("pre_import"); if (await commit("تم التراجع ✅")) go("data"); } catch (e) { toast("تعذّر التراجع: " + e.message); }
 }
 async function doImport() {
-  const f = $("#file").files[0]; if (!f) return toast("اختر ملفاً أولاً"); const mode = $("#mode").value;
-  if (mode === "replace" && DB.people.length && !confirm("سيُمسح كل ما على الجهاز ويُستبدل بمحتوى الملف. متابعة؟")) return;
-  try { const r = await importBytes(new Uint8Array(await f.arrayBuffer()), f.name, mode); toast(`تمت الإضافة: ${r.added} • تم تجاوز المكرر/المحذوف: ${r.skipped}`); go("home"); } catch (e) { toast("فشل الاستيراد: " + e.message); }
+  const f = $("#file").files[0]; if (!f) return toast("اختر ملفاً أولاً"); const mode = $("#mode") ? $("#mode").value : "merge";
+  try {
+    const bytes = new Uint8Array(await f.arrayBuffer()); let plan;
+    try { plan = await planImport(bytes, f.name, { mode }); } catch (e) { if (!e.needPass) throw e; const pp = await askPassword("هذه نسخة مشفّرة. أدخل كلمة سرها"); if (!pp) return; plan = await planImport(bytes, f.name, { mode, passphrase: pp }); }
+    VIEW = { name: "importpreview", arg: null, plan, show: {} }; render(); window.scrollTo(0, 0); }
+  catch (e) { toast("فشل فحص الملف: " + e.message); }
 }
-function wipe() { if (isAdmin() && confirm("حذف كل السجلات من هذا الجهاز؟ (خذ نسخة احتياطية أولاً)") && confirm("تأكيد أخير: الحذف نهائي")) { audit("wipe", `${DB.people.length} سجل`, ""); DB.people = []; save(); go("home"); } }
+function setDec(i, v) { VIEW.plan.dec.set(i, v); }
+function bulkDec(v) { const p = VIEW.plan; p.items.forEach((it, i) => { if (it.kind === "conflict") p.dec.set(i, v); }); viewImportPreview(); }
+function moreRows(k) { VIEW.show[k] = (VIEW.show[k] || 50) + 100; viewImportPreview(); }
+async function retarget(v) { const p = VIEW.plan; try { const np = await planImport(p.bytes, p.name, { mode: p.mode, targetCamp: v }); np.bytes = p.bytes; VIEW.plan = np; viewImportPreview(); } catch (e) { toast("❌ " + e.message); } }
+async function confirmImport() {
+  const plan = VIEW.plan, c = plan.counts; if (plan.prev && !(await uiConfirm(`هذا الملف (أو نفس محتواه) استُورد سابقاً بتاريخ ${new Date(plan.prev.at).toLocaleString("ar")}. استيراده مجدداً قد لا يضيف شيئاً.`, { icon: "warning", title: "ملف مكرر", ok: "متابعة", cancel: "إلغاء" }))) return;
+  if (plan.mode === "replace" && !(await uiPrompt("الاستبدال يحذف (حذفاً ناعماً) سجلات المخيمات الواردة في الملف غير الموجودة فيه. اكتب: استبدال", { expect: "استبدال", icon: "warning", title: "وضع الاستبدال" }))) return;
+  const unresolved = [...plan.items.keys()].filter(i => plan.items[i].kind === "conflict" && !plan.dec.has(i)).length;
+  if (unresolved && !(await uiConfirm(`${unresolved} تعارض لم تحسمه؛ سيُبقى السجل الحالي فيها.`, { icon: "question", title: "تعارضات بلا قرار", ok: "متابعة", cancel: "العودة للحسم" }))) return;
+  if (!(await reauth("لتأكيد الاستيراد أدخل كلمة مرورك"))) return;
+  try { const r = await applyPlan(plan, { mode: plan.mode }); VIEW = { name: "data", arg: { done: r } }; render(); toast(`✅ جديد ${r.added} • محدّث ${r.updated} • أُبقي ${r.kept} • بلا تغيير ${r.same}`); }
+  catch (e) { toast("❌ " + e.message); }
+}
+function viewImportPreview() {
+  const plan = VIEW.plan; if (!plan) return go("data"); const c = plan.counts, sh = VIEW.show;
+  const sec = (kind, title, color, rowFn) => { const rows = plan.items.map((it, i) => ({ it, i })).filter(x => x.it.kind === kind); if (!rows.length) return ""; const n = sh[kind] || 50;
+    return `<details class="card" ${kind === "conflict" ? "open" : ""}><summary><b style="color:${color}">${title} (${rows.length})</b></summary>${rows.slice(0, n).map(x => rowFn(x.it, x.i)).join("")}${rows.length > n ? `<button class="btn small sec" onclick="moreRows('${kind}')">عرض المزيد (${rows.length - n})</button>` : ""}</details>`; };
+  const nm = (r) => esc([r.n1, r.n2, r.n3, r.n4].filter(Boolean).join(" ") || "—") + " <small>" + esc(r.id || "") + "</small>";
+  const tgt = plan.needsTarget ? `<div class="banner">⚠ الملف بلا مخيم. اختر المخيم المستهدف: <select onchange="retarget(this.value)">${opt(myCamps().map(c => ({ c: c.id, ar: c.name })), plan.target)}</select></div>` : "";
+  $("#view").innerHTML = `<div class="card"><b>معاينة الاستيراد — ${esc(plan.name)}</b><div class="hint">لم يتغير شيء بعد. راجع ما يلي ثم اضغط «تطبيق». ${plan.meta && plan.meta.at ? "تاريخ النسخة: " + new Date(plan.meta.at).toLocaleString("ar") + (plan.meta.by ? " • أنشأها: " + esc(plan.meta.by) : "") : ""} ${plan.meta && plan.meta.sum ? "• بصمة السلامة ✔ " + esc(plan.meta.sum.slice(0, 8)) : ""}</div>
+   <div class="stats" style="margin-top:8px"><div class="stat" style="background:#548235"><b>${c.new}</b><span>جديد</span></div><div class="stat" style="background:${c.conflict ? "#bf8f00" : "#548235"}"><b>${c.conflict}</b><span>تعارض</span></div><div class="stat" style="background:#6b7886"><b>${c.same}</b><span>بلا تغيير</span></div><div class="stat" style="background:${c.rejected ? "#c00000" : "#548235"}"><b>${c.rejected}</b><span>مرفوض</span></div></div>
+   <div class="hint" style="margin-top:6px">${c.dupid ? "نفس رقم الوثيقة بمحتوى مختلف داخل الملف: " + c.dupid + " (تُستورد وتظهر كأخطاء للمراجعة) • " : ""}مكرر تماماً داخل الملف (يُهمل): ${c.dupfile} • محذوف محلياً (لن يُعاد): ${c.deleted} • يشبه سجلاً في مخيم آخر: ${c.cross}</div></div>
+  ${plan.prev ? `<div class="banner">⚠ هذا الملف أو نفس محتواه استُورد سابقاً بتاريخ ${new Date(plan.prev.at).toLocaleString("ar")}.</div>` : ""}${tgt}${plan.warnings.map(w => `<div class="banner">${esc(w)}</div>`).join("")}${plan.newCamps.length ? `<div class="banner">سيُنشأ مخيم جديد: ${plan.newCamps.map(c => esc(c.name)).join("، ")}</div>` : ""}${plan.mode === "replace" ? '<div class="banner">⚠ وضع الاستبدال: سجلات المخيمات الواردة في الملف وغير الموجودة فيه ستُحذف حذفاً ناعماً (تظهر في المحذوفات) ويمكن التراجع.</div>' : ""}
+  ${c.conflict ? `<div class="card row"><b>حسم التعارضات:</b><button class="btn small sec" onclick="bulkDec('keep')">إبقاء الحالي للكل</button><button class="btn small sec" onclick="bulkDec('newer')">أخذ الأحدث</button><button class="btn small sec" onclick="bulkDec('take')">أخذ الوارد للكل</button></div>` : ""}
+  ${sec("conflict", "تعارضات: نفس السجل بقيم مختلفة", "#9a6b00", (it, i) => `<div class="mem" style="display:block"><div>${nm(it.rec)} ${it.sameUid ? "" : '<span class="badge b-w">أُدخل بشكل منفصل</span>'} <span class="hint">${it.newer === "in" ? "الوارد أحدث" : "الحالي أحدث"}</span></div>
+     <table class="t" style="margin:4px 0"><tr><th>الحقل</th><th>الحالي</th><th>الوارد</th></tr>${it.diff.map(k => `<tr><td>${FLAB[k]}</td><td>${esc(fv(k, it.local[k]))}</td><td>${esc(fv(k, it.rec[k]))}</td></tr>`).join("")}</table>
+     <label style="display:inline"><input type="radio" style="width:auto;min-height:0" name="d${i}" ${(plan.dec.get(i) || "keep") === "keep" ? "checked" : ""} onchange="setDec(${i},'keep')"> إبقاء الحالي</label> &nbsp; <label style="display:inline"><input type="radio" style="width:auto;min-height:0" name="d${i}" ${plan.dec.get(i) === "take" ? "checked" : ""} onchange="setDec(${i},'take')"> أخذ الوارد</label></div>`)}
+  ${sec("new", "سجلات جديدة", "#2f7d32", (it) => `<div class="mem"><div class="t">${nm(it.rec)}${it.cross ? ' <span class="badge b-w">يشبه سجلاً في مخيم آخر</span>' : ""}${it.dupid ? ' <span class="badge b-e">رقم وثيقة مكرر في الملف</span>' : ""}</div></div>`)}
+  ${sec("rejected", "مرفوض", "#c00000", (it) => `<div class="mem"><div class="t">${nm(it.rec)}<br><small style="color:#c00000">${esc(it.why)}</small></div></div>`)}
+  ${sec("dupfile", "مكرر داخل الملف", "#9a6b00", (it) => `<div class="mem"><div class="t">${nm(it.rec)}</div></div>`)}
+  ${sec("deleted", "محذوف محلياً (لن يُعاد)", "#6b7886", (it) => `<div class="mem"><div class="t">${nm(it.rec)}</div></div>`)}`;
+  setBar(`<button class="btn" onclick="confirmImport()" ${c.new + c.conflict + c.same === 0 ? "disabled" : ""}>تطبيق الاستيراد</button><button class="btn sec" onclick="go('data')">إلغاء</button>`);
+}
+async function wipe() {
+  if (!isAdmin() || !(await uiConfirm("حذف كل السجلات من هذا الجهاز؟ (تؤخذ نقطة تراجع تلقائياً)", { icon: "warning", danger: true, title: "حذف شامل", ok: "متابعة" })) || !(await uiPrompt("للتأكيد اكتب: حذف", { expect: "حذف" }))) return;
+  if (!(await reauth("للحذف الشامل أدخل كلمة مرورك"))) return;
+  try { await Store.putAux("pre_import", await sealObj({ at: Date.now(), name: "حذف كل السجلات", by: me().id, s: snapStr() }, "pre_import")); } catch (e) { return toast("تعذّر حفظ نقطة التراجع؛ لم يُحذف شيء"); }
+  audit("wipe", `${DB.people.length} سجل`, ""); DB.people = []; save(); if (await commit("تم الحذف — يمكن التراجع من شاشة البيانات")) go("home");
+}
 
+/* ---------- identity (name / colour / logo) ---------- */
+function viewBrand() {
+  if (!isAdmin()) return go("menu"); const b = VIEW.db || (VIEW.db = { cc: DB.meta.cc || "970", name: brand().name || "", color: brand().color || "#1f4e78", logo: brand().logo || "", headPhone: (DB.meta.rules || {}).headPhone || "warn" });
+  $("#view").innerHTML = `<div class="card"><b>هوية البرنامج</b><div class="hint">الاسم واللون والشعار تظهر في أعلى التطبيق عند كل الموظفين (تنتقل داخل حزمة الحسابات الموقّعة). أيقونة الشاشة الرئيسية في الهاتف تُحدَّد عند بناء النسخة (انظر الدليل).</div>
+   <div class="grid" style="margin-top:8px"><div class="full"><label>اسم البرنامج / المؤسسة</label><input value="${esc(b.name)}" maxlength="80" oninput="VIEW.db.name=this.value"></div>
+   <div><label>اللون الرئيسي</label><input type="color" value="${esc(b.color)}" oninput="VIEW.db.color=this.value"></div>
+   <div><label>الشعار (صورة PNG/JPG/SVG — يُصغَّر تلقائياً)</label><input type="file" accept="image/*" onchange="pickLogo(this)"></div>
+   <div class="full"><label>مقدمة الأرقام المحلية (059…) عند فتح واتساب</label><select onchange="VIEW.db.cc=this.value"><option value="970"${b.cc === "970" ? " selected" : ""}>+970 (فلسطين)</option><option value="972"${b.cc === "972" ? " selected" : ""}>+972</option></select><div class="hint">الأرقام المكتوبة بـ +970 أو +972 أو 00970 أو 00972 تُقبل كما هي دائماً.</div></div>
+   <div class="full"><label>رقم جوال رب الأسرة</label><select onchange="VIEW.db.headPhone=this.value"><option value="off"${b.headPhone === "off" ? " selected" : ""}>غير مطلوب</option><option value="warn"${b.headPhone === "warn" ? " selected" : ""}>تنبيه عند غيابه (موصى به)</option><option value="error"${b.headPhone === "error" ? " selected" : ""}>إلزامي: يُعدّ خطأ يجب تصحيحه قبل التصدير</option></select><div class="hint">«إلزامي» يظهر في قائمة الأخطاء ويمنع اعتبار السجل سليماً، لكن الباحث يستطيع حفظه كمسودة إن لم يتوفر الرقم لحظتها.</div></div>
+   <div class="full" id="logoprev">${b.logo ? `<img src="${esc(b.logo)}" style="width:64px;height:64px;border-radius:10px;border:1px solid var(--line)" alt="">` : ""}</div></div></div>`;
+  setBar(`<button class="btn" onclick="saveBrand()">حفظ</button><button class="btn sec" onclick="VIEW.db=null;go('menu')">رجوع</button>`);
+}
+function pickLogo(inp) {
+  const f = inp.files[0]; if (!f) return; if (f.size > 4 * 1024 * 1024) return toast("الصورة كبيرة (أكثر من 4 م.ب)");
+  const img = new Image(), u = URL.createObjectURL(f); img.onload = () => { const c = document.createElement("canvas"); c.width = c.height = 96; const x = c.getContext("2d"), k = Math.min(96 / img.width, 96 / img.height); x.clearRect(0, 0, 96, 96); x.drawImage(img, (96 - img.width * k) / 2, (96 - img.height * k) / 2, img.width * k, img.height * k); URL.revokeObjectURL(u);
+    const d = c.toDataURL("image/png"); if (d.length > 45000) return toast("الشعار معقّد جداً؛ استخدم صورة أبسط"); VIEW.db.logo = d; $("#logoprev").innerHTML = `<img src="${d}" style="width:64px;height:64px;border-radius:10px;border:1px solid var(--line)" alt="">`; };
+  img.onerror = () => { URL.revokeObjectURL(u); toast("تعذّرت قراءة الصورة"); }; img.src = u;
+}
+async function saveBrand() {
+  if (!isAdmin()) return toast("لمدير النظام فقط"); const b = VIEW.db; if (!/^#[0-9a-fA-F]{6}$/.test(b.color)) return toast("لون غير صالح"); if ((b.name || "").length > 80) return toast("الاسم طويل");
+  DB.meta.brand = { name: (b.name || "").trim(), color: b.color, logo: b.logo || "" }; DB.meta.cc = b.cc === "972" ? "972" : "970"; DB.meta.rules = { headPhone: ["off", "warn", "error"].includes(b.headPhone) ? b.headPhone : "warn" }; audit("brand_edit", DB.meta.brand.name, "هاتف رب الأسرة: " + DB.meta.rules.headPhone); save(); VIEW.db = null; applyBrand(); if (await commit("تم الحفظ ✅")) go("menu");
+}
+/* ---------- welcome message for a new / reset account (opened by the user, never sent automatically) ---------- */
+function viewWelcome() {
+  const w = VIEW.arg; if (!w) return go("users"); const app = appTitle(), org = DB.meta.org ? orgCode(DB.meta.org.fp) : "";
+  const m1 = `مرحباً ${w.name}،\nتم إنشاء حسابك في «${app}».\nاسم المستخدم: ${w.username}\nكلمة المرور المؤقتة تصلك في رسالة منفصلة، وستُطلب منك كلمة مرور جديدة عند أول دخول.${org ? "\nرمز المؤسسة (لاستيراد حزمة الحسابات): " + org : ""}\nلا تشارك بيانات دخولك مع أحد.`, m2 = `كلمة المرور المؤقتة لحساب ${w.username}: ${w.pw}`;
+  const links = (m, sub) => `${(w.wa || w.phone) ? `<a class="btn small sec" target="_blank" rel="noopener" href="https://wa.me/${intl(w.wa || w.phone)}?text=${encodeURIComponent(m)}">💬 واتساب</a>` : ""}${w.email ? `<a class="btn small sec" href="mailto:${esc(w.email)}?subject=${encodeURIComponent(sub)}&body=${encodeURIComponent(m)}">✉ بريد</a>` : ""}<button class="btn small sec" onclick="navigator.clipboard&&navigator.clipboard.writeText(${esc(JSON.stringify(m))}).then(()=>toast('نُسخت'))">📋 نسخ</button>`;
+  $("#view").innerHTML = `<div class="card"><b>✅ تم حفظ الحساب</b><div class="banner" style="margin-top:8px">كلمة المرور المؤقتة تُعرض <b>الآن فقط</b> ولا تُحفظ في أي مكان. أرسل الرسالتين <b>عبر قناتين مختلفتين</b> (مثلاً الاسم بواتساب وكلمة المرور بمكالمة) ليسهل اكتشاف الاختراق. التطبيق لا يرسل شيئاً تلقائياً؛ الإرسال يتم من جهازك بضغطتك.</div></div>
+   <div class="card"><b>الرسالة 1 — اسم المستخدم</b><pre style="white-space:pre-wrap;font-family:inherit;background:#f6f8fb;padding:8px;border-radius:8px">${esc(m1)}</pre><div class="row">${links(m1, "حسابك في " + app)}</div></div>
+   <div class="card"><b>الرسالة 2 — كلمة المرور المؤقتة</b><pre style="white-space:pre-wrap;font-family:inherit;background:#f6f8fb;padding:8px;border-radius:8px">${esc(m2)}</pre><div class="row">${links(m2, "كلمة المرور المؤقتة")}</div></div>`;
+  setBar(`<button class="btn" onclick="go('users')">تم</button>`);
+}
+/* ---------- smart input: wrong keyboard language is fixed as you type; Arabic/Persian digits become 0-9 ---------- */
+const normDigits = (s) => String(s ?? "").replace(/[٠-٩۰-۹]/g, d => AR_DIG[d]);
+const AR_K = { q: "ض", w: "ص", e: "ث", r: "ق", t: "ف", y: "غ", u: "ع", i: "ه", o: "خ", p: "ح", "[": "ج", "]": "د", a: "ش", s: "س", d: "ي", f: "ب", g: "ل", h: "ا", j: "ت", k: "ن", l: "م", ";": "ك", "'": "ط", z: "ئ", x: "ء", c: "ؤ", v: "ر", b: "لا", n: "ى", m: "ة", ",": "و", ".": "ز", "/": "ظ", H: "أ", N: "آ", Y: "إ", T: "لإ", G: "لأ", B: "لآ" };
+const EN_K = { "ا": "h", "أ": "h", "إ": "h", "آ": "n", "ى": "n", "ئ": "z", "ؤ": "c", "ء": "x", "ة": "m" }; for (const [k, v] of Object.entries(AR_K)) if (v.length === 1 && /[a-z\[\];',./]/.test(k) && !EN_K[v]) EN_K[v] = k;
+const smartVal = (v, lang) => lang === "ar" ? v.replace(/[A-Za-z\[\];',./]/g, ch => AR_K[ch] || AR_K[ch.toLowerCase()] || ch) : lang === "en" ? v.replace(/[\u0600-\u06FF]/g, ch => EN_K[ch] || (/[\u064B-\u065F\u0640]/.test(ch) ? "" : ch)) : v;
+document.addEventListener("input", e => {   // capture phase: runs before the screen's own handlers, which then see the corrected value
+  const t = e.target; if (!t || !t.dataset || e.isComposing) return; const lang = t.dataset.lang, num = t.dataset.num; if (!lang && !num) return;
+  let v = t.value, w = v; if (num) w = num === "p" ? normDigits(w).replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "") : normDigits(w).replace(/\D/g, "");
+  if (lang) { w = smartVal(w, lang); if (t.dataset.case === "lower") w = w.toLowerCase(); }
+  if (w !== v) { const pos = t.selectionStart, d = w.length - v.length; t.value = w; try { if (pos != null) t.setSelectionRange(Math.max(0, pos + d), Math.max(0, pos + d)); } catch (e2) { } }
+}, true);
+document.addEventListener("focusin", e => { const t = e.target; if (t && t.dataset && t.dataset.lang) { t.lang = t.dataset.lang; if (t.dataset.lang === "en") { t.setAttribute("autocapitalize", "none"); t.setAttribute("autocorrect", "off"); t.spellcheck = false; } } });
 /* ============================== start ============================== */
 ["click", "keydown", "touchstart"].forEach(ev => document.addEventListener(ev, () => { lastAct = Date.now(); }, true));
-setInterval(() => { if (SESSION && Date.now() - lastAct > 15 * 60000) logout("تم تسجيل الخروج تلقائياً بعد 15 دقيقة خمول"); }, 30000);
+setInterval(() => { if (SESSION && Date.now() - lastAct > 15 * 60000) logout("تم تسجيل الخروج تلقائياً بعد 15 دقيقة خمول"); else if (SESSION && !sessionValid()) render(); }, 30000);
+let STORE_PROBLEM = null;
+function migrate() {
+  const d = DB; d.camps = d.camps || []; d.roles = d.roles || []; d.users = d.users || []; d.audit = d.audit || []; d.imports = d.imports || []; d.deviceId = d.deviceId || uid();
+  for (const p of d.people) if (!p.uid) p.uid = uid();
+  if ((d.schema || 2) < 3) {   // v0.3: add the new note permissions to the built-in roles of existing installs (custom roles are left to the administrator)
+    const add = { admin: ALLP, manager: ["note.add", "note.view.others"], supervisor: ["note.add", "note.view.others"], researcher: ["note.add"], reviewer: ["note.view.others"] };
+    for (const r of d.roles) if (add[r.id]) r.perms = [...new Set([...(r.perms || []), ...add[r.id]])];
+  }
+  d.schema = SCHEMA;
+}
+function viewStorageProblem() {
+  const r = STORE_PROBLEM || {};
+  $("#view").innerHTML = `<div class="card"><h2 style="margin-top:0;color:#c00000">⛔ تعذّرت قراءة بيانات هذا الجهاز</h2>
+  <div class="hint" style="font-size:15px">لم يستبدل البرنامج بياناتك بقاعدة فارغة ولن يكتب شيئاً فوقها. السبب: <b>${esc(r.why || "غير معروف")}</b></div>
+  <ol><li>أغلق أي نافذة أخرى للتطبيق ثم اضغط «إعادة المحاولة».</li><li>لا تمسح بيانات المتصفح قبل تنزيل نسخة من الملف التالف (إن وُجد الزر أدناه).</li><li>استعن بنسخة احتياطية JSON: ابدأ نظاماً جديداً ثم استوردها.</li></ol>
+  <div class="row"><button class="btn" onclick="location.reload()">إعادة المحاولة</button>${r.raw ? '<button class="btn sec" onclick="downloadCorrupt()">⬇ تنزيل البيانات التالفة (للإصلاح)</button>' : ""}</div></div>
+  ${Store.db ? `<div class="card"><b>بدء نظام جديد</b><div class="hint">تُحفظ البيانات التالفة جانباً في المتصفح قبل أن يبدأ نظام فارغ. لن تتمكن من استعادتها إلا بمساعدة فنية.</div><div class="row" style="margin-top:8px"><button class="btn red small" onclick="startFresh()">بدء نظام جديد</button></div></div>` : ""}`;
+}
+function downloadCorrupt() { const r = STORE_PROBLEM || {}; if (r.raw) dl(U8(r.raw), "damaged_data_" + stamp() + ".json", "application/json"); }
+async function startFresh() {
+  if (!(await uiConfirm("سيبدأ نظام فارغ. هل أنت متأكد؟", { icon: "warning", danger: true, title: "نظام جديد", ok: "متابعة" })) || !(await uiPrompt("للتأكيد اكتب كلمة: جديد", { expect: "جديد" }))) return;
+  try { const cur = await Store.getAux("db").catch(() => null); if (cur) await Store.putAux("corrupt_last", { at: Date.now(), v: cur }); Store.rev = cur && cur.rev || null; Store.legacy = !!(cur && !cur.fmt); }
+  catch (e) { return toast("تعذّر حفظ البيانات التالفة جانباً؛ لم يبدأ نظام جديد"); }
+  SAVE.blocked = false; STORE_PROBLEM = null; migrate(); VIEW = { name: "login" }; save(); render();
+}
 (async function init() {
-  await Store.open(); const s = await Store.get();
-  if (s && s.people) DB = { ...DB, ...s, meta: { ...DB.meta, ...(s.meta || {}) } };
-  DB.camps = DB.camps || []; DB.roles = DB.roles || []; DB.users = DB.users || []; DB.audit = DB.audit || []; DB.deviceId = DB.deviceId || uid();
-  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { }
-  if ("serviceWorker" in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(() => { });
-  VIEW = { name: "login" }; render();
+  await Store.open(); const r = await Store.load();
+  if (r.status === "failed") { SAVE.blocked = true; STORE_PROBLEM = r; }
+  else {
+    if (r.db) { if ((r.db.schema || 2) > SCHEMA) { SAVE.blocked = true; STORE_PROBLEM = { why: "البيانات من إصدار أحدث (" + r.db.schema + ") من هذا التطبيق؛ حدّث التطبيق أولاً" }; } else { const old = (r.db.schema || 2) < SCHEMA; DB = { ...DB, ...r.db, meta: { ...DB.meta, ...(r.db.meta || {}) } }; if (old && Store.db) { try { const raw = await Store.getAux("db"); if (raw) await Store.putAux("snap_premigrate", raw); } catch (e) { } } } }
+    if (r.status === "recovered") { SAVE.note = "⚠ تعذّرت قراءة آخر نسخة محفوظة (" + esc(r.why || "") + ") فاستُعيدت لقطة تلقائية من " + (r.at ? new Date(r.at).toLocaleString("ar") : "نسخة أقدم") + ". قد تضيع التعديلات التي تلتها — راجع بياناتك. حُفظت النسخة التالفة جانباً."; if (r.raw && Store.db) { try { await Store.putAux("corrupt_last", { at: Date.now(), s: r.raw }); } catch (e) { } } }
+    SAVE.volatile = !!r.volatile || !Store.db;
+    if (!SAVE.blocked) { const upgrade = !!(r.db && (r.db.schema || 2) < SCHEMA); migrate(); if (r.status === "recovered" || upgrade || Store.legacy || r.fromLocal) { SAVE.dirty = true; flush({ snap: true }); } }
+  }
+  try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) { }
+  storageInfo(); setInterval(storageInfo, 300000);
+  if ("serviceWorker" in navigator && /^https?:/.test(location.protocol)) {
+    navigator.serviceWorker.register("sw.js").then(reg => {
+      const watch = (w) => w && w.addEventListener("statechange", () => { if (w.state === "installed" && navigator.serviceWorker.controller) { SAVE.update = w; showSave(); } });
+      if (reg.waiting && navigator.serviceWorker.controller) { SAVE.update = reg.waiting; showSave(); }
+      reg.addEventListener("updatefound", () => watch(reg.installing));
+    }).catch(() => { });
+    let reloading = false; navigator.serviceWorker.addEventListener("controllerchange", () => { if (reloading || !SAVE.updating) return; reloading = true; location.reload(); });
+  }
+  try { history.replaceState({ k: 0 }, ""); history.pushState({ k: 1 }, ""); } catch (e) { }
+  applyBrand(); VIEW = { name: "login" }; render(); showSave();
 })();
-window.__app = { verifyAudit, audit, reauth, assignableRoles, locsWithin, makeExport, shareXlsx, canShareFiles, get DB() { return DB; }, set DB(v) { DB = v; }, get SESSION() { return SESSION; }, set SESSION(v) { SESSION = v; }, validateAll, buildXlsx, readXlsx, importBytes, validate, buildCtx, status, families, visible, luhnOK, parseDob, go, render, viewHome, save, hashPw, checkPw, pbkdf2, pbkdf2JS, can, importPackObj };
+window.addEventListener("beforeunload", e => { saveDraft(); if (SAVE.dirty || SAVE.state === "saving" || SAVE.state === "error") { e.preventDefault(); e.returnValue = ""; } });
+window.addEventListener("pagehide", () => { saveDraft(); flush(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") { saveDraft(); flush(); } });
+window.addEventListener("popstate", () => {      // the phone's Back button must not close the app and lose work
+  try { history.pushState({ k: 1 }, ""); } catch (e) { }
+  if (!SESSION) return; if (VIEW.name === "form") return cancelForm(); if (VIEW.name !== "home") return go("home"); toast("للخروج استخدم «المزيد ← خروج»");
+});
+
 
 </script>
 </body>
